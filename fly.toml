@@ -1,4 +1,4 @@
-# app name is set via `fly launch` / `fly apps create` — see setup steps.
+app = "lostarkbot"
 primary_region = "iad"
 
 [build]
