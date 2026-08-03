@@ -1,0 +1,8 @@
+# app name is set via `fly launch` / `fly apps create` — see setup steps.
+primary_region = "iad"
+
+[build]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
