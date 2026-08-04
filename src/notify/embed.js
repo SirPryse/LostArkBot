@@ -100,17 +100,20 @@ function buildStatFields(logEntry, role) {
 /**
  * `compact` (the default for a newly tracked character) shows just
  * Difficulty/Class/Gear Score/Combat Power — already the embed description
- * — plus Duration and the log link. `competitive` adds the full DPS/support
- * stat breakdown on top of that.
+ * — plus Duration. `competitive` adds the full DPS/support stat breakdown
+ * and the lostark.bible log link on top of that.
  */
 export function buildClearMessage(logEntry, viewMode = 'competitive') {
   const role = getRole(logEntry);
   const color = role === 'support' ? SUPPORT_COLOR : role === 'dps' ? DPS_COLOR : FALLBACK_COLOR;
+  const isCompetitive = viewMode === 'competitive';
 
   const fields = [
-    ...(viewMode === 'competitive' ? buildStatFields(logEntry, role) : []),
+    ...(isCompetitive ? buildStatFields(logEntry, role) : []),
     { name: 'Duration', value: formatDuration(logEntry.duration), inline: true },
-    { name: 'Log', value: `https://lostark.bible/logs/${logEntry.id}`, inline: false },
+    ...(isCompetitive
+      ? [{ name: 'Log', value: `https://lostark.bible/logs/${logEntry.id}`, inline: false }]
+      : []),
   ];
 
   const attachment = new AttachmentBuilder(getBossImagePath(logEntry.boss), { name: 'boss.png' });
