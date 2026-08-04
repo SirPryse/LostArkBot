@@ -12,6 +12,7 @@ export async function listEnabledWithAccount() {
       tc.region,
       tc.guild_id,
       tc.last_seen_log_id,
+      tc.view_mode,
       la.id as linked_account_id,
       la.access_token,
       la.token_expires_at,
@@ -31,6 +32,7 @@ export async function getEnabledWithAccountById(id) {
       tc.region,
       tc.guild_id,
       tc.last_seen_log_id,
+      tc.view_mode,
       la.id as linked_account_id,
       la.access_token,
       la.token_expires_at,
@@ -98,14 +100,14 @@ export async function remove(id, linkedAccountId) {
   ]);
 }
 
-export async function create({ linkedAccountId, characterName, region, guildId }) {
+export async function create({ linkedAccountId, characterName, region, guildId, viewMode = 'competitive' }) {
   const { rows } = await pool.query(
-    `insert into tracked_characters (linked_account_id, character_name, region, guild_id)
-     values ($1, $2, $3, $4)
+    `insert into tracked_characters (linked_account_id, character_name, region, guild_id, view_mode)
+     values ($1, $2, $3, $4, $5)
      on conflict (linked_account_id, character_name, region, guild_id) do update
-       set enabled = true, updated_at = now()
+       set enabled = true, view_mode = excluded.view_mode, updated_at = now()
      returning *`,
-    [linkedAccountId, characterName, region, guildId],
+    [linkedAccountId, characterName, region, guildId, viewMode],
   );
   return rows[0];
 }

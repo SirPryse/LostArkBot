@@ -25,8 +25,10 @@ responsible for re-running the OAuth flow and updating `access_token` /
 
 ## `tracked_characters`
 
-One row per character being watched, written by the app page when a user picks
-which of their roster characters to track and which Discord server to post to.
+One row per character being watched. Written by either side: the app page's
+dashboard used to write this (now read-only there), and the bot's own
+`/track-character` / `/untrack-character` commands write it directly now —
+both just need the shared `linked_account_id`.
 
 | column              | notes                                                          |
 |---------------------|-----------------------------------------------------------------|
@@ -34,9 +36,10 @@ which of their roster characters to track and which Discord server to post to.
 | `character_name`    | matched case-insensitively by the lostark.bible API              |
 | `region`            | `CE` or `NA`                                                     |
 | `guild_id`          | which Discord server this character's clears announce in         |
-| `enabled`           | app page can set `false` to pause without deleting the row       |
-| `last_seen_log_id`  | **bot-owned**, do not write from the app page                    |
-| `last_checked_at`   | **bot-owned**, do not write from the app page                    |
+| `enabled`           | set `false` to pause without deleting the row                   |
+| `view_mode`         | `compact` (Difficulty/Class/Gear Score/Combat Power only) or `competitive` (adds the full DPS/support stat breakdown) — set via the buttons at the end of `/track-character` |
+| `last_seen_log_id`  | **bot-owned**, do not write from elsewhere                       |
+| `last_checked_at`   | **bot-owned**, do not write from elsewhere                       |
 
 Unique on `(linked_account_id, character_name, region, guild_id)`.
 

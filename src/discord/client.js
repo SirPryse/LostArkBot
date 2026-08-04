@@ -46,15 +46,16 @@ export function createDiscordClient() {
       return;
     }
 
-    if (interaction.isStringSelectMenu()) {
-      const command = COMMANDS.find(
-        (c) => c.customIdPrefix && interaction.customId.startsWith(c.customIdPrefix),
-      );
-      if (!command?.handleComponent) return;
-      try {
-        await command.handleComponent(interaction);
-      } catch (err) {
-        await replyWithError(interaction, err, `component ${interaction.customId}`);
+    if (interaction.isMessageComponent()) {
+      for (const command of COMMANDS) {
+        const handler = command.componentHandlers?.find((h) => interaction.customId.startsWith(h.prefix));
+        if (!handler) continue;
+        try {
+          await handler.handle(interaction);
+        } catch (err) {
+          await replyWithError(interaction, err, `component ${interaction.customId}`);
+        }
+        return;
       }
     }
   });

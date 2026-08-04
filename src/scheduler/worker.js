@@ -66,7 +66,7 @@ async function processCheckCharacter(discordClient, { trackedCharacterId }) {
     if (channelId) {
       const channel = await discordClient.channels.fetch(channelId);
       for (const entry of [...newEntries].reverse()) {
-        await channel.send(buildClearMessage(entry));
+        await channel.send(buildClearMessage(entry, row.view_mode));
       }
     }
   }

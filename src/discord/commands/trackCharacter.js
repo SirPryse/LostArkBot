@@ -2,6 +2,8 @@ import {
   SlashCommandBuilder,
   StringSelectMenuBuilder,
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   MessageFlags,
 } from 'discord.js';
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
@@ -11,8 +13,13 @@ import { decryptToken } from '../../crypto/tokenCipher.js';
 import { TokenExpiredError, InsufficientScopeError } from '../../lostarkbible/errors.js';
 
 const APP_PAGE_URL = 'https://lost-ark-app-page.vercel.app';
-const CUSTOM_ID_PREFIX = 'track-character-select:';
+const SELECT_PREFIX = 'track-character-select:';
+const VIEW_PREFIX = 'track-character-view:';
 const MAX_OPTIONS = 25; // Discord select menu limit
+
+function buildViewCustomId(mode, linkedAccountId, characterName, region) {
+  return `${VIEW_PREFIX}${mode}:${linkedAccountId}:${encodeURIComponent(characterName)}:${region}`;
+}
 
 export const trackCharacterCommand = {
   data: new SlashCommandBuilder()
@@ -75,7 +82,7 @@ export const trackCharacterCommand = {
     }));
 
     const select = new StringSelectMenuBuilder()
-      .setCustomId(`${CUSTOM_ID_PREFIX}${account.id}`)
+      .setCustomId(`${SELECT_PREFIX}${account.id}`)
       .setPlaceholder('Select a character')
       .addOptions(options);
 
@@ -90,22 +97,56 @@ export const trackCharacterCommand = {
     });
   },
 
-  customIdPrefix: CUSTOM_ID_PREFIX,
+  componentHandlers: [
+    {
+      // Character picked from the roster — now ask which view mode to announce with.
+      prefix: SELECT_PREFIX,
+      async handle(interaction) {
+        const linkedAccountId = interaction.customId.slice(SELECT_PREFIX.length);
+        const [characterName, region] = interaction.values[0].split('|');
 
-  async handleComponent(interaction) {
-    const linkedAccountId = interaction.customId.slice(CUSTOM_ID_PREFIX.length);
-    const [characterName, region] = interaction.values[0].split('|');
+        const buttons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(buildViewCustomId('compact', linkedAccountId, characterName, region))
+            .setLabel('Compact')
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId(buildViewCustomId('competitive', linkedAccountId, characterName, region))
+            .setLabel('Competitive')
+            .setStyle(ButtonStyle.Primary),
+        );
 
-    const row = await create({
-      linkedAccountId,
-      characterName,
-      region,
-      guildId: interaction.guildId,
-    });
+        await interaction.update({
+          content:
+            `**${characterName}** (${region}) selected. Pick how clears should be announced:\n` +
+            `**Compact** — Difficulty, Class, Gear Score, Combat Power only\n` +
+            `**Competitive** — adds the full DPS/support stat breakdown`,
+          components: [buttons],
+        });
+      },
+    },
+    {
+      // View mode chosen — actually create the tracked_characters row.
+      prefix: VIEW_PREFIX,
+      async handle(interaction) {
+        const [mode, linkedAccountId, encodedName, region] = interaction.customId
+          .slice(VIEW_PREFIX.length)
+          .split(':');
+        const characterName = decodeURIComponent(encodedName);
 
-    await interaction.update({
-      content: `Tracking **${row.character_name}** (${row.region}) in this server. New clears will post once \`/announce-channel\` is set.`,
-      components: [],
-    });
-  },
+        const row = await create({
+          linkedAccountId,
+          characterName,
+          region,
+          guildId: interaction.guildId,
+          viewMode: mode,
+        });
+
+        await interaction.update({
+          content: `Tracking **${row.character_name}** (${row.region}) in this server — **${mode}** view. New clears will post once \`/announce-channel\` is set.`,
+          components: [],
+        });
+      },
+    },
+  ],
 };

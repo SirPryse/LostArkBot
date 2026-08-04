@@ -41,17 +41,20 @@ export const untrackCharacterCommand = {
     });
   },
 
-  customIdPrefix: CUSTOM_ID_PREFIX,
+  componentHandlers: [
+    {
+      prefix: CUSTOM_ID_PREFIX,
+      async handle(interaction) {
+        const linkedAccountId = interaction.customId.slice(CUSTOM_ID_PREFIX.length);
+        const trackedCharacterId = interaction.values[0];
 
-  async handleComponent(interaction) {
-    const linkedAccountId = interaction.customId.slice(CUSTOM_ID_PREFIX.length);
-    const trackedCharacterId = interaction.values[0];
+        await remove(trackedCharacterId, linkedAccountId);
 
-    await remove(trackedCharacterId, linkedAccountId);
-
-    await interaction.update({
-      content: 'Stopped tracking that character in this server.',
-      components: [],
-    });
-  },
+        await interaction.update({
+          content: 'Stopped tracking that character in this server.',
+          components: [],
+        });
+      },
+    },
+  ],
 };

@@ -97,12 +97,18 @@ function buildStatFields(logEntry, role) {
   return [{ name: 'DPS', value: formatStat(logEntry.dps), inline: true }];
 }
 
-export function buildClearMessage(logEntry) {
+/**
+ * `compact` (the default for a newly tracked character) shows just
+ * Difficulty/Class/Gear Score/Combat Power — already the embed description
+ * — plus Duration and the log link. `competitive` adds the full DPS/support
+ * stat breakdown on top of that.
+ */
+export function buildClearMessage(logEntry, viewMode = 'competitive') {
   const role = getRole(logEntry);
   const color = role === 'support' ? SUPPORT_COLOR : role === 'dps' ? DPS_COLOR : FALLBACK_COLOR;
 
   const fields = [
-    ...buildStatFields(logEntry, role),
+    ...(viewMode === 'competitive' ? buildStatFields(logEntry, role) : []),
     { name: 'Duration', value: formatDuration(logEntry.duration), inline: true },
     { name: 'Log', value: `https://lostark.bible/logs/${logEntry.id}`, inline: false },
   ];
