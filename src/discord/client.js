@@ -3,12 +3,18 @@ import { config } from '../config.js';
 import { announceChannelCommand } from './commands/announceChannel.js';
 import { checkNowCommand } from './commands/checkNow.js';
 import { recentRaidsCommand } from './commands/recentRaids.js';
+import { registeredUsersCommand } from './commands/registeredUsers.js';
 
 export function createDiscordClient() {
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
   client.commands = new Collection();
-  for (const command of [announceChannelCommand, checkNowCommand, recentRaidsCommand]) {
+  for (const command of [
+    announceChannelCommand,
+    checkNowCommand,
+    recentRaidsCommand,
+    registeredUsersCommand,
+  ]) {
     client.commands.set(command.data.name, command);
   }
 
