@@ -4,38 +4,55 @@ import { announceChannelCommand } from './commands/announceChannel.js';
 import { checkNowCommand } from './commands/checkNow.js';
 import { recentRaidsCommand } from './commands/recentRaids.js';
 import { registeredUsersCommand } from './commands/registeredUsers.js';
+import { trackCharacterCommand } from './commands/trackCharacter.js';
+
+const COMMANDS = [
+  announceChannelCommand,
+  checkNowCommand,
+  recentRaidsCommand,
+  registeredUsersCommand,
+  trackCharacterCommand,
+];
+
+async function replyWithError(interaction, err, label) {
+  console.error(`Error handling ${label}:`, err);
+  const reply = { content: 'Something went wrong running that command.', flags: MessageFlags.Ephemeral };
+  if (interaction.replied || interaction.deferred) {
+    await interaction.followUp(reply);
+  } else {
+    await interaction.reply(reply);
+  }
+}
 
 export function createDiscordClient() {
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
   client.commands = new Collection();
-  for (const command of [
-    announceChannelCommand,
-    checkNowCommand,
-    recentRaidsCommand,
-    registeredUsersCommand,
-  ]) {
+  for (const command of COMMANDS) {
     client.commands.set(command.data.name, command);
   }
 
   client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
+    if (interaction.isChatInputCommand()) {
+      const command = client.commands.get(interaction.commandName);
+      if (!command) return;
+      try {
+        await command.execute(interaction);
+      } catch (err) {
+        await replyWithError(interaction, err, `command ${interaction.commandName}`);
+      }
+      return;
+    }
 
-    const command = client.commands.get(interaction.commandName);
-    if (!command) return;
-
-    try {
-      await command.execute(interaction);
-    } catch (err) {
-      console.error(`Error running command ${interaction.commandName}:`, err);
-      const reply = {
-        content: 'Something went wrong running that command.',
-        flags: MessageFlags.Ephemeral,
-      };
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp(reply);
-      } else {
-        await interaction.reply(reply);
+    if (interaction.isStringSelectMenu()) {
+      const command = COMMANDS.find(
+        (c) => c.customIdPrefix && interaction.customId.startsWith(c.customIdPrefix),
+      );
+      if (!command?.handleComponent) return;
+      try {
+        await command.handleComponent(interaction);
+      } catch (err) {
+        await replyWithError(interaction, err, `component ${interaction.customId}`);
       }
     }
   });

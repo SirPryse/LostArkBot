@@ -80,6 +80,18 @@ export async function listByGuild(guildId) {
   return rows;
 }
 
+export async function create({ linkedAccountId, characterName, region, guildId }) {
+  const { rows } = await pool.query(
+    `insert into tracked_characters (linked_account_id, character_name, region, guild_id)
+     values ($1, $2, $3, $4)
+     on conflict (linked_account_id, character_name, region, guild_id) do update
+       set enabled = true, updated_at = now()
+     returning *`,
+    [linkedAccountId, characterName, region, guildId],
+  );
+  return rows[0];
+}
+
 export async function updateLastSeen(id, lastSeenLogId) {
   await pool.query(
     `update tracked_characters
