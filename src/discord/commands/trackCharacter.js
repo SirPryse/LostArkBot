@@ -5,7 +5,7 @@ import {
   MessageFlags,
 } from 'discord.js';
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
-import { create } from '../../db/trackedCharacters.js';
+import { create, listByLinkedAccountAndGuild } from '../../db/trackedCharacters.js';
 import { getRosters } from '../../lostarkbible/client.js';
 import { decryptToken } from '../../crypto/tokenCipher.js';
 import { TokenExpiredError, InsufficientScopeError } from '../../lostarkbible/errors.js';
@@ -50,12 +50,21 @@ export const trackCharacterCommand = {
       throw err;
     }
 
-    const characters = rosters.flatMap((roster) =>
+    const allCharacters = rosters.flatMap((roster) =>
       (roster.characters ?? []).map((character) => ({ ...character, region: roster.region, world: roster.world })),
     );
 
-    if (characters.length === 0) {
+    if (allCharacters.length === 0) {
       await interaction.editReply('No characters found on your lostark.bible roster.');
+      return;
+    }
+
+    const alreadyTracked = await listByLinkedAccountAndGuild(account.id, interaction.guildId);
+    const trackedKeys = new Set(alreadyTracked.map((t) => `${t.character_name}|${t.region}`));
+    const characters = allCharacters.filter((c) => !trackedKeys.has(`${c.name}|${c.region}`));
+
+    if (characters.length === 0) {
+      await interaction.editReply('All of your characters are already tracked in this server.');
       return;
     }
 

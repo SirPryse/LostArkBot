@@ -5,6 +5,7 @@ import { checkNowCommand } from './commands/checkNow.js';
 import { recentRaidsCommand } from './commands/recentRaids.js';
 import { registeredUsersCommand } from './commands/registeredUsers.js';
 import { trackCharacterCommand } from './commands/trackCharacter.js';
+import { untrackCharacterCommand } from './commands/untrackCharacter.js';
 
 const commands = [
   announceChannelCommand,
@@ -12,6 +13,7 @@ const commands = [
   recentRaidsCommand,
   registeredUsersCommand,
   trackCharacterCommand,
+  untrackCharacterCommand,
 ].map((command) => command.data.toJSON());
 
 const rest = new REST().setToken(config.discordToken);

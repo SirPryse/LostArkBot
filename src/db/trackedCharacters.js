@@ -80,6 +80,24 @@ export async function listByGuild(guildId) {
   return rows;
 }
 
+export async function listByLinkedAccountAndGuild(linkedAccountId, guildId) {
+  const { rows } = await pool.query(
+    `select id, character_name, region
+     from tracked_characters
+     where linked_account_id = $1 and guild_id = $2 and enabled = true
+     order by character_name`,
+    [linkedAccountId, guildId],
+  );
+  return rows;
+}
+
+export async function remove(id, linkedAccountId) {
+  await pool.query('delete from tracked_characters where id = $1 and linked_account_id = $2', [
+    id,
+    linkedAccountId,
+  ]);
+}
+
 export async function create({ linkedAccountId, characterName, region, guildId }) {
   const { rows } = await pool.query(
     `insert into tracked_characters (linked_account_id, character_name, region, guild_id)
