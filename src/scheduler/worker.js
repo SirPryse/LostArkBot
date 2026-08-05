@@ -5,18 +5,74 @@ import { listEnabledWithAccount, getEnabledWithAccountById, updateLastSeen } fro
 import { markNeedsReauth } from '../db/linkedAccounts.js';
 import { getAnnouncementChannel } from '../db/guildSettings.js';
 import { recordClear } from '../db/clearHistory.js';
+import { claim, setMessage, get as getGroupPost } from '../db/raidGroupPosts.js';
 import { getCharacterLogs } from '../lostarkbible/client.js';
 import { decryptToken } from '../crypto/tokenCipher.js';
 import { buildClearMessage, getRole } from '../notify/embed.js';
 import { TokenExpiredError, InsufficientScopeError } from '../lostarkbible/errors.js';
 
 const CHECK_JOB_OPTS = { removeOnComplete: true, removeOnFail: true };
+const EMBED_LIMIT_PER_MESSAGE = 10; // Discord's hard cap
+const CLAIM_WAIT_RETRIES = 10;
+const CLAIM_WAIT_INTERVAL_MS = 500;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function processTick() {
   const rows = await listEnabledWithAccount();
   for (const row of rows) {
     await raidPollQueue.add('check-character', { trackedCharacterId: row.id }, CHECK_JOB_OPTS);
   }
+}
+
+/**
+ * lostark.bible's log `id` is shared across every tracked character who
+ * cleared the same raid together (confirmed: identical id + identical
+ * millisecond timestamp across different accounts). Whoever's poll job gets
+ * here first for a given (guild, log id) claims it and posts a fresh
+ * message; everyone else appends their own embed to that same message
+ * instead of posting a separate one.
+ */
+async function announceClear(discordClient, guildId, channelId, entry, viewMode) {
+  const message = buildClearMessage(entry, viewMode);
+  const { won } = await claim(guildId, entry.id);
+
+  if (won) {
+    const channel = await discordClient.channels.fetch(channelId);
+    const sent = await channel.send(message);
+    await setMessage(guildId, entry.id, channelId, sent.id);
+    return;
+  }
+
+  // Someone else claimed it — wait for them to finish posting, then append.
+  let existing = await getGroupPost(guildId, entry.id);
+  for (let i = 0; i < CLAIM_WAIT_RETRIES && !existing?.message_id; i++) {
+    await sleep(CLAIM_WAIT_INTERVAL_MS);
+    existing = await getGroupPost(guildId, entry.id);
+  }
+
+  if (!existing?.message_id) {
+    // Whoever claimed it never finished (crashed mid-post?) — don't block
+    // this announcement on them forever.
+    const channel = await discordClient.channels.fetch(channelId);
+    await channel.send(message);
+    return;
+  }
+
+  const channel = await discordClient.channels.fetch(existing.channel_id);
+  const existingMessage = await channel.messages.fetch(existing.message_id);
+
+  if (existingMessage.embeds.length >= EMBED_LIMIT_PER_MESSAGE) {
+    await channel.send(message); // full raid party hit Discord's embed cap
+    return;
+  }
+
+  await existingMessage.edit({
+    embeds: [...existingMessage.embeds, ...message.embeds],
+    files: message.files,
+  });
 }
 
 async function processCheckCharacter(discordClient, { trackedCharacterId }) {
@@ -71,9 +127,8 @@ async function processCheckCharacter(discordClient, { trackedCharacterId }) {
   if (newEntries.length > 0) {
     const channelId = await getAnnouncementChannel(row.guild_id);
     if (channelId) {
-      const channel = await discordClient.channels.fetch(channelId);
       for (const entry of [...newEntries].reverse()) {
-        await channel.send(buildClearMessage(entry, row.view_mode));
+        await announceClear(discordClient, row.guild_id, channelId, entry, row.view_mode);
         if (row.view_mode === 'competitive') {
           await recordClear(
             row.id,

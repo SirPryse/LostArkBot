@@ -61,6 +61,25 @@ Powers the badge tally on that command.
 | `contribution_percentile`  | the clear's `contributionPercentile` value ("Contribution" badges, support only), nullable |
 | `died`                     | from the clear's `isDead` flag                             |
 
+## `raid_group_posts`
+
+**Bot-owned.** lostark.bible's log `id` is shared across every tracked
+character who cleared the same raid together (confirmed: identical id +
+identical millisecond timestamp across different accounts). Primary key
+`(guild_id, log_id)` — whoever's poll job inserts first "claims" that raid
+clear and posts a fresh Discord message; `message_id` starts null and gets
+filled in right after. Later pollers for the same clear see the conflict,
+wait briefly for `message_id`, then append their own embed to that message
+instead of posting a separate one. See `src/scheduler/worker.js`'s
+`announceClear`.
+
+| column       | notes                                          |
+|--------------|--------------------------------------------------|
+| `guild_id`   | part of the primary key                          |
+| `log_id`     | part of the primary key — the shared lostark.bible log id |
+| `channel_id` | set once the claiming poller actually posts       |
+| `message_id` | set once the claiming poller actually posts; null until then |
+
 ## `guild_settings`
 
 Owned entirely by the bot — set via the `/announce-channel` slash command by a

@@ -103,7 +103,12 @@ export function buildClearMessage(logEntry, viewMode = 'competitive') {
       : []),
   ];
 
-  const attachment = new AttachmentBuilder(getBossImagePath(logEntry.boss), { name: 'boss.png' });
+  // Filename includes the log id so multiple party members' embeds (same
+  // boss, same image) can coexist as separate attachments in one message
+  // when a raid clear gets consolidated — reusing "boss.png" for all of
+  // them would collide.
+  const filename = `boss-${logEntry.id}.png`;
+  const attachment = new AttachmentBuilder(getBossImagePath(logEntry.boss), { name: filename });
 
   const embed = new EmbedBuilder()
     .setTitle(`${logEntry.name} cleared ${logEntry.boss}`)
@@ -111,7 +116,7 @@ export function buildClearMessage(logEntry, viewMode = 'competitive') {
       `Difficulty: **${logEntry.difficulty}**\nClass: **${logEntry.class} (${logEntry.spec})**\nGear Score: **${formatStat(logEntry.gearScore)}**\nCombat Power: **${formatStat(logEntry.combatPower)}**`,
     )
     .addFields(fields)
-    .setThumbnail('attachment://boss.png')
+    .setThumbnail(`attachment://${filename}`)
     .setTimestamp(new Date(logEntry.timestamp))
     .setColor(color);
 
