@@ -40,8 +40,21 @@ both just need the shared `linked_account_id`.
 | `view_mode`         | `compact` (Difficulty/Class/Gear Score/Combat Power only) or `competitive` (adds the full DPS/support stat breakdown) — set via the buttons at the end of `/track-character` |
 | `last_seen_log_id`  | **bot-owned**, do not write from elsewhere                       |
 | `last_checked_at`   | **bot-owned**, do not write from elsewhere                       |
+| `class_name`        | **bot-owned** — kept fresh from the newest log entry on every poll |
+| `role`              | **bot-owned** — `dps` \| `support` \| `unknown`, inferred from the log entry's fields |
 
 Unique on `(linked_account_id, character_name, region, guild_id)`.
+
+## `clear_history`
+
+**Bot-owned.** One row per clear announced for a `competitive`-view-mode
+character (nothing is logged for `compact` characters — see `/character-page`).
+Powers the badge tally on that command.
+
+| column                 | notes                                                     |
+|------------------------|--------------------------------------------------------------|
+| `tracked_character_id` | FK to `tracked_characters.id`, cascades on delete             |
+| `percentile`           | the clear's `percentile` value, nullable                      |
 
 ## `guild_settings`
 

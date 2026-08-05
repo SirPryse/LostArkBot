@@ -4,9 +4,10 @@ import { raidPollQueue } from './queue.js';
 import { listEnabledWithAccount, getEnabledWithAccountById, updateLastSeen } from '../db/trackedCharacters.js';
 import { markNeedsReauth } from '../db/linkedAccounts.js';
 import { getAnnouncementChannel } from '../db/guildSettings.js';
+import { recordClear } from '../db/clearHistory.js';
 import { getCharacterLogs } from '../lostarkbible/client.js';
 import { decryptToken } from '../crypto/tokenCipher.js';
-import { buildClearMessage } from '../notify/embed.js';
+import { buildClearMessage, getRole } from '../notify/embed.js';
 import { TokenExpiredError, InsufficientScopeError } from '../lostarkbible/errors.js';
 
 const CHECK_JOB_OPTS = { removeOnComplete: true, removeOnFail: true };
@@ -48,11 +49,12 @@ async function processCheckCharacter(discordClient, { trackedCharacterId }) {
   if (!entries || entries.length === 0) return; // 404 or no logs yet
 
   const newest = entries[0];
+  const identity = { className: newest.class, role: getRole(newest) };
 
   if (!row.last_seen_log_id) {
     // First-ever check for this character: record a baseline instead of
     // announcing their entire clear history.
-    await updateLastSeen(row.id, newest.id);
+    await updateLastSeen(row.id, newest.id, identity);
     return;
   }
 
@@ -67,11 +69,14 @@ async function processCheckCharacter(discordClient, { trackedCharacterId }) {
       const channel = await discordClient.channels.fetch(channelId);
       for (const entry of [...newEntries].reverse()) {
         await channel.send(buildClearMessage(entry, row.view_mode));
+        if (row.view_mode === 'competitive') {
+          await recordClear(row.id, entry.percentile ?? null);
+        }
       }
     }
   }
 
-  await updateLastSeen(row.id, newest.id);
+  await updateLastSeen(row.id, newest.id, identity);
 }
 
 export function createRaidPollWorker(discordClient) {

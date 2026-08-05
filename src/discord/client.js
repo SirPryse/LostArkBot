@@ -6,6 +6,7 @@ import { recentRaidsCommand } from './commands/recentRaids.js';
 import { registeredUsersCommand } from './commands/registeredUsers.js';
 import { trackCharacterCommand } from './commands/trackCharacter.js';
 import { untrackCharacterCommand } from './commands/untrackCharacter.js';
+import { characterPageCommand } from './commands/characterPage.js';
 
 const COMMANDS = [
   announceChannelCommand,
@@ -14,6 +15,7 @@ const COMMANDS = [
   registeredUsersCommand,
   trackCharacterCommand,
   untrackCharacterCommand,
+  characterPageCommand,
 ];
 
 async function replyWithError(interaction, err, label) {

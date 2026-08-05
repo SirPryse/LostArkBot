@@ -84,13 +84,23 @@ export async function listByGuild(guildId) {
 
 export async function listByLinkedAccountAndGuild(linkedAccountId, guildId) {
   const { rows } = await pool.query(
-    `select id, character_name, region
+    `select id, character_name, region, view_mode
      from tracked_characters
      where linked_account_id = $1 and guild_id = $2 and enabled = true
      order by character_name`,
     [linkedAccountId, guildId],
   );
   return rows;
+}
+
+/** Ownership-scoped lookup — used before showing anything derived from a
+ * specific tracked_characters row, so a user can only ever act on their own. */
+export async function getByIdForOwner(id, linkedAccountId) {
+  const { rows } = await pool.query(
+    'select * from tracked_characters where id = $1 and linked_account_id = $2',
+    [id, linkedAccountId],
+  );
+  return rows[0] ?? null;
 }
 
 export async function remove(id, linkedAccountId) {
@@ -112,12 +122,13 @@ export async function create({ linkedAccountId, characterName, region, guildId, 
   return rows[0];
 }
 
-export async function updateLastSeen(id, lastSeenLogId) {
+export async function updateLastSeen(id, lastSeenLogId, { className, role } = {}) {
   await pool.query(
     `update tracked_characters
-     set last_seen_log_id = $2, last_checked_at = now(), updated_at = now()
+     set last_seen_log_id = $2, last_checked_at = now(), updated_at = now(),
+         class_name = coalesce($3, class_name), role = coalesce($4, role)
      where id = $1`,
-    [id, lastSeenLogId],
+    [id, lastSeenLogId, className ?? null, role ?? null],
   );
 }
 

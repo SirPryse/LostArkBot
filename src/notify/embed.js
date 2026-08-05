@@ -1,9 +1,10 @@
 import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { getBossImagePath } from './bossImages.js';
+import { tierForFraction } from './percentileTiers.js';
 
-const SUPPORT_COLOR = 0x57f287; // Discord green
-const DPS_COLOR = 0xed4245; // Discord red
-const FALLBACK_COLOR = 0x5865f2; // Discord blurple
+export const SUPPORT_COLOR = 0x57f287; // Discord green
+export const DPS_COLOR = 0xed4245; // Discord red
+export const FALLBACK_COLOR = 0x5865f2; // Discord blurple
 
 const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 
@@ -28,26 +29,6 @@ function formatPercent(fraction) {
   return `${(fraction * 100).toFixed(2)}%`;
 }
 
-/**
- * Colored circle emoji per percentile tier (standard parse-percentile
- * ranges: grey/green/blue/purple/orange/pink/gold) — renders identically
- * across every client/theme, unlike Discord's ansi code-block colors (whose
- * background palette doesn't have true green/gold options and can be
- * unreadable depending on the viewer's theme). Unicode has no pink circle
- * emoji, so the 99 tier uses a pink heart instead (breaks the circle shape,
- * but gets the actual color right).
- */
-function percentileTierEmoji(fraction) {
-  const p = fraction * 100;
-  if (p >= 100) return '⭐'; // 100
-  if (p >= 99) return '🩷'; // 99 (pink)
-  if (p >= 95) return '🟠'; // 98-95
-  if (p >= 75) return '🟣'; // 94-75
-  if (p >= 50) return '🔵'; // 74-50
-  if (p >= 25) return '🟢'; // 49-25
-  return '⚪'; // 24-0
-}
-
 /** Percentile fields get a tier dot and are framed as "Top X%" — a 0.95
  * percentile means you're better than 95% of parses, i.e. top 5%. Plain
  * contribution fractions (not a ranking against other parses) use
@@ -55,10 +36,10 @@ function percentileTierEmoji(fraction) {
 function formatPercentile(fraction) {
   if (fraction === null || fraction === undefined) return 'N/A';
   const topPercent = (100 - fraction * 100).toFixed(2);
-  return `${percentileTierEmoji(fraction)} Top ${topPercent}%`;
+  return `${tierForFraction(fraction).emoji} Top ${topPercent}%`;
 }
 
-function getRole(logEntry) {
+export function getRole(logEntry) {
   if ('bdps' in logEntry) return 'support';
   if ('udps' in logEntry) return 'dps';
   return 'unknown';
