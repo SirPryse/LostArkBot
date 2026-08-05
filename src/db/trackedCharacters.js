@@ -84,7 +84,7 @@ export async function listByGuild(guildId) {
 
 export async function listByLinkedAccountAndGuild(linkedAccountId, guildId) {
   const { rows } = await pool.query(
-    `select id, character_name, region, view_mode
+    `select id, character_name, region, view_mode, class_name
      from tracked_characters
      where linked_account_id = $1 and guild_id = $2 and enabled = true
      order by character_name`,

@@ -11,6 +11,7 @@ import { create, listByLinkedAccountAndGuild } from '../../db/trackedCharacters.
 import { getRosters } from '../../lostarkbible/client.js';
 import { decryptToken } from '../../crypto/tokenCipher.js';
 import { TokenExpiredError, InsufficientScopeError } from '../../lostarkbible/errors.js';
+import { getDisplayNameForIconKey, getClassEmoji } from '../../notify/classIcons.js';
 
 const APP_PAGE_URL = 'https://lost-ark-app-page.vercel.app';
 const SELECT_PREFIX = 'track-character-select:';
@@ -86,8 +87,9 @@ export const trackCharacterCommand = {
 
     const options = characters.slice(0, MAX_OPTIONS).map((c) => ({
       label: `${c.name} (${c.world}, ${c.region})`,
-      description: `${c.class} — iLvl ${c.ilvl}`.slice(0, 100),
+      description: `${getDisplayNameForIconKey(c.class)} — iLvl ${c.ilvl}`.slice(0, 100),
       value: `${c.name}|${c.region}`,
+      emoji: getClassEmoji(c.class) ?? undefined,
     }));
 
     const select = new StringSelectMenuBuilder()
