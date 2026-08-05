@@ -29,20 +29,22 @@ function formatPercent(fraction) {
 }
 
 /**
- * Colored circle emoji per percentile tier — renders identically across
- * every client/theme, unlike Discord's ansi code-block colors (whose
+ * Colored circle emoji per percentile tier (standard parse-percentile
+ * ranges: grey/green/blue/purple/orange/pink/gold) — renders identically
+ * across every client/theme, unlike Discord's ansi code-block colors (whose
  * background palette doesn't have true green/gold options and can be
- * unreadable depending on the viewer's theme).
+ * unreadable depending on the viewer's theme). Unicode has no pink circle
+ * emoji, so the 99 tier uses red as the closest available.
  */
 function percentileTierEmoji(fraction) {
   const p = fraction * 100;
-  if (p >= 100) return '⭐';
-  if (p >= 95) return '🔴';
-  if (p >= 90) return '🟡';
-  if (p >= 70) return '🟣';
-  if (p >= 40) return '🔵';
-  if (p >= 10) return '🟢';
-  return '⚪';
+  if (p >= 100) return '⭐'; // 100
+  if (p >= 99) return '🔴'; // 99 (pink)
+  if (p >= 95) return '🟠'; // 98-95
+  if (p >= 75) return '🟣'; // 94-75
+  if (p >= 50) return '🔵'; // 74-50
+  if (p >= 25) return '🟢'; // 49-25
+  return '⚪'; // 24-0
 }
 
 /** Percentile fields get a tier dot and are framed as "Top X%" — a 0.95
