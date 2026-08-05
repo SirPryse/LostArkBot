@@ -110,14 +110,14 @@ export async function remove(id, linkedAccountId) {
   ]);
 }
 
-export async function create({ linkedAccountId, characterName, region, guildId, viewMode = 'competitive' }) {
+export async function create({ linkedAccountId, characterName, region, guildId, viewMode = 'competitive', world }) {
   const { rows } = await pool.query(
-    `insert into tracked_characters (linked_account_id, character_name, region, guild_id, view_mode)
-     values ($1, $2, $3, $4, $5)
+    `insert into tracked_characters (linked_account_id, character_name, region, guild_id, view_mode, world)
+     values ($1, $2, $3, $4, $5, $6)
      on conflict (linked_account_id, character_name, region, guild_id) do update
-       set enabled = true, view_mode = excluded.view_mode, updated_at = now()
+       set enabled = true, view_mode = excluded.view_mode, world = coalesce(excluded.world, tracked_characters.world), updated_at = now()
      returning *`,
-    [linkedAccountId, characterName, region, guildId, viewMode],
+    [linkedAccountId, characterName, region, guildId, viewMode, world ?? null],
   );
   return rows[0];
 }

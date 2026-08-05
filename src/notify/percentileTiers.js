@@ -5,7 +5,7 @@
  * so both always agree on the same boundaries.
  */
 export const TIERS = [
-  { key: 'gold', emoji: '⭐', min: 100 },
+  { key: 'gold', emoji: '👑', min: 100 },
   { key: 'pink', emoji: '🩷', min: 99 },
   { key: 'orange', emoji: '🟠', min: 95 },
   { key: 'purple', emoji: '🟣', min: 75 },

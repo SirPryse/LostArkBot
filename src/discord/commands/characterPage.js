@@ -98,7 +98,7 @@ export const characterPageCommand = {
 
         const color = row.role === 'support' ? SUPPORT_COLOR : row.role === 'dps' ? DPS_COLOR : FALLBACK_COLOR;
         const iconPath = getClassIconPath(row.class_name);
-        const serverName = interaction.guild?.name ?? 'this server';
+        const worldName = row.world ?? 'Unknown';
 
         // Supports get Uptime and Contribution badges tracked separately —
         // they're distinct percentile metrics — shown side by side. DPS
@@ -114,7 +114,7 @@ export const characterPageCommand = {
         const embed = new EmbedBuilder()
           .setTitle(`${row.character_name} the ${row.class_name}`)
           .setDescription(
-            `Server: **${serverName}**\n` +
+            `Server: **${worldName}**\n` +
               `Gear Score: **${formatOptionalStat(row.gear_score)}**\n` +
               `Combat Power: **${formatOptionalStat(row.combat_power)}**\n` +
               `Total raids cleared: **${total}**\n` +

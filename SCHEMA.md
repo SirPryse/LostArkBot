@@ -44,6 +44,7 @@ both just need the shared `linked_account_id`.
 | `role`              | **bot-owned** — `dps` \| `support` \| `unknown`, inferred from the log entry's fields |
 | `gear_score`        | **bot-owned** — from the newest log entry, kept fresh every poll  |
 | `combat_power`      | **bot-owned** — from the newest log entry, kept fresh every poll  |
+| `world`             | Lost Ark server name (e.g. "Arcturus"), from the rosters API's `world` field — set once at `/track-character` time, not re-fetched afterward |
 
 Unique on `(linked_account_id, character_name, region, guild_id)`.
 

@@ -88,7 +88,7 @@ export const trackCharacterCommand = {
     const options = characters.slice(0, MAX_OPTIONS).map((c) => ({
       label: `${c.name} (${c.world}, ${c.region})`,
       description: `${getDisplayNameForIconKey(c.class)} — iLvl ${c.ilvl}`.slice(0, 100),
-      value: `${c.name}|${c.region}`,
+      value: `${c.name}|${c.region}|${c.world}`,
       emoji: getClassEmoji(c.class) ?? undefined,
     }));
 
@@ -118,8 +118,8 @@ export const trackCharacterCommand = {
       async handle(interaction) {
         const linkedAccountId = interaction.customId.slice(SELECT_PREFIX.length);
         const selected = interaction.values.map((v) => {
-          const [name, region] = v.split('|');
-          return { name, region };
+          const [name, region, world] = v.split('|');
+          return { name, region, world };
         });
 
         storePending(interaction.message.id, { linkedAccountId, characters: selected });
@@ -164,7 +164,7 @@ export const trackCharacterCommand = {
         pendingSelections.delete(messageId);
 
         const rows = [];
-        for (const { name, region } of pending.characters) {
+        for (const { name, region, world } of pending.characters) {
           rows.push(
             await create({
               linkedAccountId: pending.linkedAccountId,
@@ -172,6 +172,7 @@ export const trackCharacterCommand = {
               region,
               guildId: interaction.guildId,
               viewMode: mode,
+              world,
             }),
           );
         }
