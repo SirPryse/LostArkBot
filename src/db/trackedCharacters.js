@@ -122,13 +122,14 @@ export async function create({ linkedAccountId, characterName, region, guildId, 
   return rows[0];
 }
 
-export async function updateLastSeen(id, lastSeenLogId, { className, role } = {}) {
+export async function updateLastSeen(id, lastSeenLogId, { className, role, gearScore, combatPower } = {}) {
   await pool.query(
     `update tracked_characters
      set last_seen_log_id = $2, last_checked_at = now(), updated_at = now(),
-         class_name = coalesce($3, class_name), role = coalesce($4, role)
+         class_name = coalesce($3, class_name), role = coalesce($4, role),
+         gear_score = coalesce($5, gear_score), combat_power = coalesce($6, combat_power)
      where id = $1`,
-    [id, lastSeenLogId, className ?? null, role ?? null],
+    [id, lastSeenLogId, className ?? null, role ?? null, gearScore ?? null, combatPower ?? null],
   );
 }
 

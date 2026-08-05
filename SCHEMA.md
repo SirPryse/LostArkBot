@@ -42,6 +42,8 @@ both just need the shared `linked_account_id`.
 | `last_checked_at`   | **bot-owned**, do not write from elsewhere                       |
 | `class_name`        | **bot-owned** — kept fresh from the newest log entry on every poll |
 | `role`              | **bot-owned** — `dps` \| `support` \| `unknown`, inferred from the log entry's fields |
+| `gear_score`        | **bot-owned** — from the newest log entry, kept fresh every poll  |
+| `combat_power`      | **bot-owned** — from the newest log entry, kept fresh every poll  |
 
 Unique on `(linked_account_id, character_name, region, guild_id)`.
 
@@ -56,6 +58,7 @@ Powers the badge tally on that command.
 | `tracked_character_id`     | FK to `tracked_characters.id`, cascades on delete          |
 | `percentile`               | the clear's `percentile` value ("Uptime" badges), nullable |
 | `contribution_percentile`  | the clear's `contributionPercentile` value ("Contribution" badges, support only), nullable |
+| `died`                     | from the clear's `isDead` flag                             |
 
 ## `guild_settings`
 

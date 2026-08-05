@@ -49,7 +49,12 @@ async function processCheckCharacter(discordClient, { trackedCharacterId }) {
   if (!entries || entries.length === 0) return; // 404 or no logs yet
 
   const newest = entries[0];
-  const identity = { className: newest.class, role: getRole(newest) };
+  const identity = {
+    className: newest.class,
+    role: getRole(newest),
+    gearScore: newest.gearScore,
+    combatPower: newest.combatPower,
+  };
 
   if (!row.last_seen_log_id) {
     // First-ever check for this character: record a baseline instead of
@@ -70,7 +75,12 @@ async function processCheckCharacter(discordClient, { trackedCharacterId }) {
       for (const entry of [...newEntries].reverse()) {
         await channel.send(buildClearMessage(entry, row.view_mode));
         if (row.view_mode === 'competitive') {
-          await recordClear(row.id, entry.percentile ?? null, entry.contributionPercentile ?? null);
+          await recordClear(
+            row.id,
+            entry.percentile ?? null,
+            entry.contributionPercentile ?? null,
+            Boolean(entry.isDead),
+          );
         }
       }
     }

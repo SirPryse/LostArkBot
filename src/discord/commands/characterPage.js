@@ -11,10 +11,20 @@ import { listByLinkedAccountAndGuild, getByIdForOwner } from '../../db/trackedCh
 import { getStats } from '../../db/clearHistory.js';
 import { getClassIconPath } from '../../notify/classIcons.js';
 import { TIERS } from '../../notify/percentileTiers.js';
-import { SUPPORT_COLOR, DPS_COLOR, FALLBACK_COLOR } from '../../notify/embed.js';
+import { SUPPORT_COLOR, DPS_COLOR, FALLBACK_COLOR, formatStat } from '../../notify/embed.js';
 
 const CUSTOM_ID_PREFIX = 'character-page-select:';
 const MAX_OPTIONS = 25; // Discord select menu limit
+
+function formatOptionalStat(value) {
+  return value === null || value === undefined ? 'N/A' : formatStat(Number(value));
+}
+
+/** One tier per line (rather than crammed onto one line) so the badge
+ * counts are actually readable. */
+function badgeLines(counts) {
+  return TIERS.map((t) => `${t.emoji} **${counts[t.key]}**`).join('\n');
+}
 
 export const characterPageCommand = {
   data: new SlashCommandBuilder()
@@ -84,25 +94,32 @@ export const characterPageCommand = {
           return;
         }
 
-        const { total, tierCounts, contributionTierCounts } = await getStats(row.id, TIERS);
-        const badgeLine = (counts) => TIERS.map((t) => `${t.emoji}${counts[t.key]}`).join('  ');
+        const { total, diedCount, tierCounts, contributionTierCounts } = await getStats(row.id, TIERS);
 
         const color = row.role === 'support' ? SUPPORT_COLOR : row.role === 'dps' ? DPS_COLOR : FALLBACK_COLOR;
         const iconPath = getClassIconPath(row.class_name);
+        const serverName = interaction.guild?.name ?? 'this server';
 
         // Supports get Uptime and Contribution badges tracked separately —
-        // they're distinct percentile metrics. DPS only ever has one.
+        // they're distinct percentile metrics — shown side by side. DPS
+        // only ever has one.
         const badgeFields =
           row.role === 'support'
             ? [
-                { name: 'Uptime Badges', value: badgeLine(tierCounts) || 'None yet', inline: false },
-                { name: 'Contribution Badges', value: badgeLine(contributionTierCounts) || 'None yet', inline: false },
+                { name: 'Uptime Badges', value: badgeLines(tierCounts), inline: true },
+                { name: 'Contribution Badges', value: badgeLines(contributionTierCounts), inline: true },
               ]
-            : [{ name: 'Badges', value: badgeLine(tierCounts) || 'None yet', inline: false }];
+            : [{ name: 'Badges', value: badgeLines(tierCounts), inline: false }];
 
         const embed = new EmbedBuilder()
-          .setTitle(row.character_name)
-          .setDescription(`**${row.class_name}**\nTotal raids cleared: **${total}**`)
+          .setTitle(`${row.character_name} the ${row.class_name}`)
+          .setDescription(
+            `Server: **${serverName}**\n` +
+              `Gear Score: **${formatOptionalStat(row.gear_score)}**\n` +
+              `Combat Power: **${formatOptionalStat(row.combat_power)}**\n` +
+              `Total raids cleared: **${total}**\n` +
+              `Died in **${diedCount}** raid${diedCount === 1 ? '' : 's'}`,
+          )
           .addFields(badgeFields)
           .setColor(color);
 

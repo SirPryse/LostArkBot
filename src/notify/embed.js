@@ -16,7 +16,7 @@ function formatDuration(ms) {
 }
 
 /** 2-decimal float, with M/B suffix for large stats (damage-scale numbers). */
-function formatStat(n) {
+export function formatStat(n) {
   const abs = Math.abs(n);
   if (abs >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
