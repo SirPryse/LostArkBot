@@ -12,6 +12,7 @@ import { getRosters } from '../../lostarkbible/client.js';
 import { decryptToken } from '../../crypto/tokenCipher.js';
 import { TokenExpiredError, InsufficientScopeError } from '../../lostarkbible/errors.js';
 import { getDisplayNameForIconKey, getClassEmoji } from '../../notify/classIcons.js';
+import { formatStat } from '../../notify/embed.js';
 
 const APP_PAGE_URL = 'https://lost-ark-app-page.vercel.app';
 const SELECT_PREFIX = 'track-character-select:';
@@ -87,7 +88,7 @@ export const trackCharacterCommand = {
 
     const options = characters.slice(0, MAX_OPTIONS).map((c) => ({
       label: `${c.name} (${c.world}, ${c.region})`,
-      description: `${getDisplayNameForIconKey(c.class)} — iLvl ${c.ilvl}`.slice(0, 100),
+      description: `${getDisplayNameForIconKey(c.class)} — iLvl ${formatStat(c.ilvl)}`.slice(0, 100),
       value: `${c.name}|${c.region}|${c.world}`,
       emoji: getClassEmoji(c.class) ?? undefined,
     }));
