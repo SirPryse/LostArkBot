@@ -46,9 +46,37 @@ const ICON_KEY_BY_DISPLAY_NAME = {
   Artist: 'yinyangshi',
 };
 
+/**
+ * The logs API doesn't always match the rosters API's display names exactly
+ * — observed in production: "Guardianknight" (no space) instead of "Guardian
+ * Knight", and "Arcanist" instead of "Arcana". Rather than chase every
+ * possible variant one at a time, spacing/case differences are handled by
+ * normalizing (see normalize() below), and genuinely different spellings get
+ * an explicit alias here.
+ */
+const DISPLAY_NAME_ALIASES = {
+  Arcanist: 'Arcana',
+};
+
 const DISPLAY_NAME_BY_ICON_KEY = Object.fromEntries(
   Object.entries(ICON_KEY_BY_DISPLAY_NAME).map(([displayName, key]) => [key, displayName]),
 );
+
+function normalize(name) {
+  return name.toLowerCase().replace(/[^a-z]/g, '');
+}
+
+const ICON_KEY_BY_NORMALIZED_NAME = Object.fromEntries(
+  Object.entries(ICON_KEY_BY_DISPLAY_NAME).map(([displayName, key]) => [normalize(displayName), key]),
+);
+
+function resolveIconKey(className) {
+  if (!className) return null;
+  const aliased = DISPLAY_NAME_ALIASES[className] ?? className;
+  return (
+    ICON_KEY_BY_DISPLAY_NAME[aliased] ?? ICON_KEY_BY_NORMALIZED_NAME[normalize(aliased)] ?? null
+  );
+}
 
 /**
  * Application emoji IDs — uploaded once via PUT /applications/{id}/emojis
@@ -90,7 +118,7 @@ const EMOJI_ID_BY_ICON_KEY = {
 
 /** For a class display name (from the logs API, e.g. "Sorceress"). */
 export function getClassIconPath(className) {
-  const key = ICON_KEY_BY_DISPLAY_NAME[className];
+  const key = resolveIconKey(className);
   return key ? path.join(ASSETS_DIR, `${key}.png`) : null;
 }
 
@@ -103,7 +131,11 @@ export function getDisplayNameForIconKey(key) {
  * rosters API's `class` field is already the icon key, no translation
  * needed there. */
 export function getClassEmoji(classNameOrIconKey) {
-  const key = ICON_KEY_BY_DISPLAY_NAME[classNameOrIconKey] ?? classNameOrIconKey;
-  const id = EMOJI_ID_BY_ICON_KEY[key];
+  // Roster icon keys (e.g. "elemental_master") are already valid EMOJI_ID
+  // keys directly; only display names need resolving.
+  const key = EMOJI_ID_BY_ICON_KEY[classNameOrIconKey]
+    ? classNameOrIconKey
+    : resolveIconKey(classNameOrIconKey);
+  const id = key ? EMOJI_ID_BY_ICON_KEY[key] : null;
   return id ? { id, name: key } : null;
 }
