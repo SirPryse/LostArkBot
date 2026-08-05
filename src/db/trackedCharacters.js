@@ -103,6 +103,20 @@ export async function getByIdForOwner(id, linkedAccountId) {
   return rows[0] ?? null;
 }
 
+/** Same ownership scoping as getByIdForOwner, but keyed by Discord user id
+ * instead of linked_account_id — lets a button's customId carry just the
+ * tracked_characters id (Discord's 100-char customId limit doesn't leave
+ * room for two UUIDs). */
+export async function getByIdForDiscordUser(id, discordUserId) {
+  const { rows } = await pool.query(
+    `select tc.* from tracked_characters tc
+     join linked_accounts la on la.id = tc.linked_account_id
+     where tc.id = $1 and la.discord_user_id = $2`,
+    [id, discordUserId],
+  );
+  return rows[0] ?? null;
+}
+
 export async function remove(id, linkedAccountId) {
   await pool.query('delete from tracked_characters where id = $1 and linked_account_id = $2', [
     id,

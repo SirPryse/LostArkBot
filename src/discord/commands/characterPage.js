@@ -2,18 +2,21 @@ import {
   SlashCommandBuilder,
   StringSelectMenuBuilder,
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
   AttachmentBuilder,
   MessageFlags,
 } from 'discord.js';
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
-import { listByLinkedAccountAndGuild, getByIdForOwner } from '../../db/trackedCharacters.js';
+import { listByLinkedAccountAndGuild, getByIdForOwner, getByIdForDiscordUser } from '../../db/trackedCharacters.js';
 import { getStats } from '../../db/clearHistory.js';
 import { getClassIconPath } from '../../notify/classIcons.js';
 import { TIERS } from '../../notify/percentileTiers.js';
 import { SUPPORT_COLOR, DPS_COLOR, FALLBACK_COLOR, formatStat } from '../../notify/embed.js';
 
-const CUSTOM_ID_PREFIX = 'character-page-select:';
+const SELECT_PREFIX = 'character-page-select:';
+const VISIBILITY_PREFIX = 'character-page-vis:';
 const MAX_OPTIONS = 25; // Discord select menu limit
 
 function formatOptionalStat(value) {
@@ -24,6 +27,44 @@ function formatOptionalStat(value) {
  * counts are actually readable. */
 function badgeLines(counts) {
   return TIERS.map((t) => `${t.emoji} **${counts[t.key]}**`).join('\n');
+}
+
+async function buildCharacterPageEmbed(row) {
+  const { total, diedCount, tierCounts, contributionTierCounts } = await getStats(row.id, TIERS);
+
+  const color = row.role === 'support' ? SUPPORT_COLOR : row.role === 'dps' ? DPS_COLOR : FALLBACK_COLOR;
+  const iconPath = getClassIconPath(row.class_name);
+  const worldName = row.world ?? 'Unknown';
+
+  // Supports get Uptime and Contribution badges tracked separately — they're
+  // distinct percentile metrics — shown side by side. DPS only ever has one.
+  const badgeFields =
+    row.role === 'support'
+      ? [
+          { name: 'Uptime Badges', value: badgeLines(tierCounts), inline: true },
+          { name: 'Contribution Badges', value: badgeLines(contributionTierCounts), inline: true },
+        ]
+      : [{ name: 'Badges', value: badgeLines(tierCounts), inline: false }];
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${row.character_name} the ${row.class_name}`)
+    .setDescription(
+      `Server: **${worldName}**\n` +
+        `Gear Score: **${formatOptionalStat(row.gear_score)}**\n` +
+        `Combat Power: **${formatOptionalStat(row.combat_power)}**\n` +
+        `Total raids cleared: **${total}**\n` +
+        `Died in **${diedCount}** raid${diedCount === 1 ? '' : 's'}`,
+    )
+    .addFields(badgeFields)
+    .setColor(color);
+
+  const files = [];
+  if (iconPath) {
+    files.push(new AttachmentBuilder(iconPath, { name: 'class.png' }));
+    embed.setThumbnail('attachment://class.png');
+  }
+
+  return { embeds: [embed], files };
 }
 
 export const characterPageCommand = {
@@ -52,7 +93,7 @@ export const characterPageCommand = {
     }));
 
     const select = new StringSelectMenuBuilder()
-      .setCustomId(`${CUSTOM_ID_PREFIX}${account.id}`)
+      .setCustomId(`${SELECT_PREFIX}${account.id}`)
       .setPlaceholder('Select a character')
       .addOptions(options);
 
@@ -64,9 +105,11 @@ export const characterPageCommand = {
 
   componentHandlers: [
     {
-      prefix: CUSTOM_ID_PREFIX,
+      // Character picked — validate it has stats to show, then ask whether
+      // to post it publicly or keep it private before actually building it.
+      prefix: SELECT_PREFIX,
       async handle(interaction) {
-        const linkedAccountId = interaction.customId.slice(CUSTOM_ID_PREFIX.length);
+        const linkedAccountId = interaction.customId.slice(SELECT_PREFIX.length);
         const trackedCharacterId = interaction.values[0];
 
         const row = await getByIdForOwner(trackedCharacterId, linkedAccountId);
@@ -94,42 +137,43 @@ export const characterPageCommand = {
           return;
         }
 
-        const { total, diedCount, tierCounts, contributionTierCounts } = await getStats(row.id, TIERS);
+        const buttons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`${VISIBILITY_PREFIX}self:${row.id}`)
+            .setLabel('Only me')
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId(`${VISIBILITY_PREFIX}everyone:${row.id}`)
+            .setLabel('Post to everyone')
+            .setStyle(ButtonStyle.Primary),
+        );
 
-        const color = row.role === 'support' ? SUPPORT_COLOR : row.role === 'dps' ? DPS_COLOR : FALLBACK_COLOR;
-        const iconPath = getClassIconPath(row.class_name);
-        const worldName = row.world ?? 'Unknown';
+        await interaction.update({
+          content: `**${row.character_name}**'s page is ready. Who should see it?`,
+          components: [buttons],
+        });
+      },
+    },
+    {
+      // Visibility chosen — build the page and either post it publicly
+      // (a real followUp, not the ephemeral original) or keep it private.
+      prefix: VISIBILITY_PREFIX,
+      async handle(interaction) {
+        const [visibility, trackedCharacterId] = interaction.customId.slice(VISIBILITY_PREFIX.length).split(':');
 
-        // Supports get Uptime and Contribution badges tracked separately —
-        // they're distinct percentile metrics — shown side by side. DPS
-        // only ever has one.
-        const badgeFields =
-          row.role === 'support'
-            ? [
-                { name: 'Uptime Badges', value: badgeLines(tierCounts), inline: true },
-                { name: 'Contribution Badges', value: badgeLines(contributionTierCounts), inline: true },
-              ]
-            : [{ name: 'Badges', value: badgeLines(tierCounts), inline: false }];
-
-        const embed = new EmbedBuilder()
-          .setTitle(`${row.character_name} the ${row.class_name}`)
-          .setDescription(
-            `Server: **${worldName}**\n` +
-              `Gear Score: **${formatOptionalStat(row.gear_score)}**\n` +
-              `Combat Power: **${formatOptionalStat(row.combat_power)}**\n` +
-              `Total raids cleared: **${total}**\n` +
-              `Died in **${diedCount}** raid${diedCount === 1 ? '' : 's'}`,
-          )
-          .addFields(badgeFields)
-          .setColor(color);
-
-        const files = [];
-        if (iconPath) {
-          files.push(new AttachmentBuilder(iconPath, { name: 'class.png' }));
-          embed.setThumbnail('attachment://class.png');
+        const row = await getByIdForDiscordUser(trackedCharacterId, interaction.user.id);
+        if (!row) {
+          await interaction.update({ content: 'That character is no longer tracked.', components: [] });
+          return;
         }
 
-        await interaction.update({ content: null, embeds: [embed], components: [], files });
+        const payload = await buildCharacterPageEmbed(row);
+
+        await interaction.update({ content: 'Here you go!', components: [] });
+        await interaction.followUp({
+          ...payload,
+          flags: visibility === 'everyone' ? undefined : MessageFlags.Ephemeral,
+        });
       },
     },
   ],
