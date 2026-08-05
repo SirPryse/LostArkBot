@@ -90,7 +90,7 @@ function buildStatFields(logEntry, role) {
         ['DPS', formatStat(logEntry.dps)],
         ['UDPS', formatStat(logEntry.udps)],
       ]),
-      { name: 'Percentile', value: formatPercentile(logEntry.overallPercentile), inline: true },
+      { name: 'Percentile', value: formatPercentile(logEntry.percentile), inline: true },
     ];
   }
 
