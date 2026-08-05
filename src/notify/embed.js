@@ -45,11 +45,14 @@ function percentileTierEmoji(fraction) {
   return '⚪';
 }
 
-/** Percentile fields get a tier dot; plain contribution fractions (not a
- * ranking against other parses) don't. */
+/** Percentile fields get a tier dot and are framed as "Top X%" — a 0.95
+ * percentile means you're better than 95% of parses, i.e. top 5%. Plain
+ * contribution fractions (not a ranking against other parses) use
+ * formatPercent instead. */
 function formatPercentile(fraction) {
   if (fraction === null || fraction === undefined) return 'N/A';
-  return `${percentileTierEmoji(fraction)} ${formatPercent(fraction)}`;
+  const topPercent = (100 - fraction * 100).toFixed(2);
+  return `${percentileTierEmoji(fraction)} Top ${topPercent}%`;
 }
 
 function getRole(logEntry) {
