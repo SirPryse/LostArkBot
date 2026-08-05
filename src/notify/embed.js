@@ -34,12 +34,13 @@ function formatPercent(fraction) {
  * across every client/theme, unlike Discord's ansi code-block colors (whose
  * background palette doesn't have true green/gold options and can be
  * unreadable depending on the viewer's theme). Unicode has no pink circle
- * emoji, so the 99 tier uses red as the closest available.
+ * emoji, so the 99 tier uses a pink heart instead (breaks the circle shape,
+ * but gets the actual color right).
  */
 function percentileTierEmoji(fraction) {
   const p = fraction * 100;
   if (p >= 100) return '⭐'; // 100
-  if (p >= 99) return '🔴'; // 99 (pink)
+  if (p >= 99) return '🩷'; // 99 (pink)
   if (p >= 95) return '🟠'; // 98-95
   if (p >= 75) return '🟣'; // 94-75
   if (p >= 50) return '🔵'; // 74-50

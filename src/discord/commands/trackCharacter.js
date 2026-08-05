@@ -16,15 +16,24 @@ const APP_PAGE_URL = 'https://lost-ark-app-page.vercel.app';
 const SELECT_PREFIX = 'track-character-select:';
 const VIEW_PREFIX = 'track-character-view:';
 const MAX_OPTIONS = 25; // Discord select menu limit
+const PENDING_TTL_MS = 10 * 60 * 1000; // matches how long an ephemeral reply is realistically actionable
 
-function buildViewCustomId(mode, linkedAccountId, characterName, region) {
-  return `${VIEW_PREFIX}${mode}:${linkedAccountId}:${encodeURIComponent(characterName)}:${region}`;
+// Selected characters don't fit in a button's 100-char customId once more
+// than one or two are picked, so the batch is held here between the select
+// menu step and the view-mode buttons instead. Single bot process, so
+// in-memory is fine — worst case on a restart mid-flow, the user just
+// re-runs the command.
+const pendingSelections = new Map();
+
+function storePending(messageId, value) {
+  pendingSelections.set(messageId, value);
+  setTimeout(() => pendingSelections.delete(messageId), PENDING_TTL_MS);
 }
 
 export const trackCharacterCommand = {
   data: new SlashCommandBuilder()
     .setName('track-character')
-    .setDescription('Pick one of your lostark.bible characters to track in this server'),
+    .setDescription('Pick one or more of your lostark.bible characters to track in this server'),
 
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -83,7 +92,9 @@ export const trackCharacterCommand = {
 
     const select = new StringSelectMenuBuilder()
       .setCustomId(`${SELECT_PREFIX}${account.id}`)
-      .setPlaceholder('Select a character')
+      .setPlaceholder('Select character(s)')
+      .setMinValues(1)
+      .setMaxValues(options.length)
       .addOptions(options);
 
     const truncatedNote =
@@ -92,33 +103,41 @@ export const trackCharacterCommand = {
         : '';
 
     await interaction.editReply({
-      content: `Pick a character to track in this server.${truncatedNote}`,
+      content: `Pick which character(s) to track in this server.${truncatedNote}`,
       components: [new ActionRowBuilder().addComponents(select)],
     });
   },
 
   componentHandlers: [
     {
-      // Character picked from the roster — now ask which view mode to announce with.
+      // Character(s) picked from the roster — now ask which view mode to
+      // announce all of them with.
       prefix: SELECT_PREFIX,
       async handle(interaction) {
         const linkedAccountId = interaction.customId.slice(SELECT_PREFIX.length);
-        const [characterName, region] = interaction.values[0].split('|');
+        const selected = interaction.values.map((v) => {
+          const [name, region] = v.split('|');
+          return { name, region };
+        });
+
+        storePending(interaction.message.id, { linkedAccountId, characters: selected });
 
         const buttons = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId(buildViewCustomId('compact', linkedAccountId, characterName, region))
+            .setCustomId(`${VIEW_PREFIX}compact:${interaction.message.id}`)
             .setLabel('Compact')
             .setStyle(ButtonStyle.Secondary),
           new ButtonBuilder()
-            .setCustomId(buildViewCustomId('competitive', linkedAccountId, characterName, region))
+            .setCustomId(`${VIEW_PREFIX}competitive:${interaction.message.id}`)
             .setLabel('Competitive')
             .setStyle(ButtonStyle.Primary),
         );
 
+        const list = selected.map((c) => `${c.name} (${c.region})`).join(', ');
+
         await interaction.update({
           content:
-            `**${characterName}** (${region}) selected. Pick how clears should be announced:\n` +
+            `Selected: **${list}**. Pick how these should be announced:\n` +
             `**Compact** — Difficulty, Class, Gear Score, Combat Power only\n` +
             `**Competitive** — adds the full DPS/support stat breakdown`,
           components: [buttons],
@@ -126,24 +145,39 @@ export const trackCharacterCommand = {
       },
     },
     {
-      // View mode chosen — actually create the tracked_characters row.
+      // View mode chosen — create a tracked_characters row for every
+      // character picked in the previous step.
       prefix: VIEW_PREFIX,
       async handle(interaction) {
-        const [mode, linkedAccountId, encodedName, region] = interaction.customId
-          .slice(VIEW_PREFIX.length)
-          .split(':');
-        const characterName = decodeURIComponent(encodedName);
+        const [mode, messageId] = interaction.customId.slice(VIEW_PREFIX.length).split(':');
 
-        const row = await create({
-          linkedAccountId,
-          characterName,
-          region,
-          guildId: interaction.guildId,
-          viewMode: mode,
-        });
+        const pending = pendingSelections.get(messageId);
+        if (!pending) {
+          await interaction.update({
+            content: 'This selection expired — run `/track-character` again.',
+            components: [],
+          });
+          return;
+        }
+        pendingSelections.delete(messageId);
+
+        const rows = [];
+        for (const { name, region } of pending.characters) {
+          rows.push(
+            await create({
+              linkedAccountId: pending.linkedAccountId,
+              characterName: name,
+              region,
+              guildId: interaction.guildId,
+              viewMode: mode,
+            }),
+          );
+        }
+
+        const list = rows.map((r) => `**${r.character_name}** (${r.region})`).join(', ');
 
         await interaction.update({
-          content: `Tracking **${row.character_name}** (${row.region}) in this server — **${mode}** view. New clears will post once \`/announce-channel\` is set.`,
+          content: `Tracking ${list} in this server — **${mode}** view. New clears will post once \`/announce-channel\` is set.`,
           components: [],
         });
       },
