@@ -84,16 +84,26 @@ export const characterPageCommand = {
           return;
         }
 
-        const { total, tierCounts } = await getStats(row.id, TIERS);
-        const badgeLine = TIERS.map((t) => `${t.emoji}${tierCounts[t.key]}`).join('  ');
+        const { total, tierCounts, contributionTierCounts } = await getStats(row.id, TIERS);
+        const badgeLine = (counts) => TIERS.map((t) => `${t.emoji}${counts[t.key]}`).join('  ');
 
         const color = row.role === 'support' ? SUPPORT_COLOR : row.role === 'dps' ? DPS_COLOR : FALLBACK_COLOR;
         const iconPath = getClassIconPath(row.class_name);
 
+        // Supports get Uptime and Contribution badges tracked separately —
+        // they're distinct percentile metrics. DPS only ever has one.
+        const badgeFields =
+          row.role === 'support'
+            ? [
+                { name: 'Uptime Badges', value: badgeLine(tierCounts) || 'None yet', inline: false },
+                { name: 'Contribution Badges', value: badgeLine(contributionTierCounts) || 'None yet', inline: false },
+              ]
+            : [{ name: 'Badges', value: badgeLine(tierCounts) || 'None yet', inline: false }];
+
         const embed = new EmbedBuilder()
           .setTitle(row.character_name)
           .setDescription(`**${row.class_name}**\nTotal raids cleared: **${total}**`)
-          .addFields({ name: 'Badges', value: badgeLine || 'None yet', inline: false })
+          .addFields(badgeFields)
           .setColor(color);
 
         const files = [];

@@ -70,7 +70,7 @@ async function processCheckCharacter(discordClient, { trackedCharacterId }) {
       for (const entry of [...newEntries].reverse()) {
         await channel.send(buildClearMessage(entry, row.view_mode));
         if (row.view_mode === 'competitive') {
-          await recordClear(row.id, entry.percentile ?? null);
+          await recordClear(row.id, entry.percentile ?? null, entry.contributionPercentile ?? null);
         }
       }
     }
