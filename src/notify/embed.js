@@ -115,13 +115,16 @@ export function buildClearMessage(logEntry, viewMode = 'competitive') {
       : []),
   ];
 
-  // Filename includes the log id so multiple party members' embeds (same
-  // boss, same image) can coexist as separate attachments in one message
-  // when a raid clear gets consolidated — reusing a fixed name for all of
-  // them would collide. Extension is kept from the source file (some boss
-  // banners are .webp, not .png) so Discord doesn't misread the format.
+  // Filename must be unique per embed WITHIN a message, not just per raid
+  // clear — logEntry.id is deliberately the same for every party member in
+  // a consolidated raid (that's what makes consolidation possible), so
+  // using just the id here would give every party member's embed the exact
+  // same filename, colliding when a second/third member's embed gets
+  // appended onto the same message via .edit(). Character name makes it
+  // unique per member too. Extension is kept from the source file (some
+  // boss banners are .webp, not .png) so Discord doesn't misread the format.
   const imagePath = getBossImagePath(logEntry.boss);
-  const filename = `boss-${logEntry.id}${path.extname(imagePath)}`;
+  const filename = `boss-${logEntry.id}-${logEntry.name}${path.extname(imagePath)}`;
   const attachment = new AttachmentBuilder(imagePath, { name: filename });
 
   const embed = new EmbedBuilder()
