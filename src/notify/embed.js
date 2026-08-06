@@ -2,6 +2,7 @@ import path from 'node:path';
 import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { getBossImagePath } from './bossImages.js';
 import { tierForFraction } from './percentileTiers.js';
+import { getMinDps } from './minDps.js';
 
 export const SUPPORT_COLOR = 0x57f287; // Discord green
 export const DPS_COLOR = 0xed4245; // Discord red
@@ -73,11 +74,21 @@ function buildStatFields(logEntry, role) {
   }
 
   if (role === 'dps') {
+    const damageParts = [
+      ['DPS', formatStat(logEntry.dps)],
+      ['UDPS', formatStat(logEntry.udps)],
+    ];
+
+    // Only shown once we actually have a threshold for this boss+difficulty
+    // — see minDps.js. Not every raid is filled in yet.
+    const minDps = getMinDps(logEntry.boss, logEntry.difficulty);
+    if (minDps !== null) {
+      const met = logEntry.dps >= minDps;
+      damageParts.push(['Min. DPS', `${formatStat(minDps)} ${met ? '✅' : '⚠️'}`]);
+    }
+
     return [
-      coupledField('Damage', [
-        ['DPS', formatStat(logEntry.dps)],
-        ['UDPS', formatStat(logEntry.udps)],
-      ]),
+      coupledField('Damage', damageParts),
       { name: 'Percentile', value: formatPercentile(logEntry.percentile), inline: true },
     ];
   }
