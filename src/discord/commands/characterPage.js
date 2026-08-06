@@ -52,7 +52,7 @@ async function buildCharacterPageEmbed(row) {
       `Server: **${worldName}**\n` +
         `Gear Score: **${formatOptionalStat(row.gear_score)}**\n` +
         `Combat Power: **${formatOptionalStat(row.combat_power)}**\n` +
-        `Total raids cleared: **${total}**\n` +
+        `Total gates cleared: **${total}**\n` +
         `Died in **${diedCount}** raid${diedCount === 1 ? '' : 's'}`,
     )
     .addFields(badgeFields)

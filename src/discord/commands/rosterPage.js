@@ -18,15 +18,16 @@ function badgeLines(counts) {
   return TIERS.map((t) => `${t.emoji} **${counts[t.key]}**`).join('\n');
 }
 
-async function buildRosterPageEmbed(linkedAccountId, guildId, displayName) {
+async function buildRosterPageEmbed(linkedAccountId, guildId, user) {
   const { total, diedCount, tierCounts } = await getAggregateStats(linkedAccountId, guildId, TIERS);
 
   return {
     embeds: [
       new EmbedBuilder()
-        .setTitle(`${displayName}'s Roster`)
+        .setTitle(`${user.username}'s Roster`)
+        .setThumbnail(user.displayAvatarURL())
         .setDescription(
-          `Total raids cleared: **${total}**\n` + `Died in **${diedCount}** raid${diedCount === 1 ? '' : 's'}`,
+          `Total gates cleared: **${total}**\n` + `Died in **${diedCount}** raid${diedCount === 1 ? '' : 's'}`,
         )
         .addFields({ name: 'Badges', value: badgeLines(tierCounts), inline: false })
         .setColor(FALLBACK_COLOR),
@@ -79,7 +80,7 @@ export const rosterPageCommand = {
           return;
         }
 
-        const payload = await buildRosterPageEmbed(account.id, interaction.guildId, interaction.user.username);
+        const payload = await buildRosterPageEmbed(account.id, interaction.guildId, interaction.user);
 
         await interaction.update({ content: 'Here you go!', components: [] });
         await interaction.followUp({
