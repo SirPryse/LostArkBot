@@ -70,7 +70,7 @@ identical millisecond timestamp across different accounts). Primary key
 clear and posts a fresh Discord message; `message_id` starts null and gets
 filled in right after. Later pollers for the same clear see the conflict,
 wait briefly for `message_id`, then append their own embed to that message
-instead of posting a separate one. See `src/scheduler/worker.js`'s
+instead of posting a separate one. See `src/scheduler/poller.js`'s
 `announceClear`.
 
 | column       | notes                                          |

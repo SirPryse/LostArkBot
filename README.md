@@ -12,27 +12,30 @@ project — see [SCHEMA.md](SCHEMA.md) for the DB contract between the two.
    `applications.commands` and `bot` scopes (Send Messages permission).
 2. **Postgres**: create a [Supabase](https://supabase.com) project, grab the
    direct connection string (port 5432) from Database Settings.
-3. **Redis**: create a free [Upstash](https://upstash.com) Redis database,
-   grab its connection URL.
-4. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN`,
-   `DISCORD_CLIENT_ID`, `DATABASE_URL`, `REDIS_URL`. Generate `ENCRYPTION_KEY`
-   with:
+3. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN`,
+   `DISCORD_CLIENT_ID`, `DATABASE_URL`. Generate `ENCRYPTION_KEY` with:
    ```
    node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
    ```
-5. Install dependencies and run migrations:
+4. Install dependencies and run migrations:
    ```
    npm install
    npm run migrate
    ```
-6. Register slash commands (run again any time commands change):
+5. Register slash commands (run again any time commands change):
    ```
    npm run deploy-commands
    ```
-7. Start the bot:
+6. Start the bot:
    ```
    npm run dev
    ```
+
+The scheduler polls in-process on a plain interval (`POLL_INTERVAL_MINUTES`,
+default 10) — no queue or Redis involved. This is a single-instance bot, so a
+distributed job queue was pure overhead; it used to run on BullMQ/Upstash
+Redis but that got dropped after burning through Upstash's free-tier request
+cap in about a week from the per-character job fan-out.
 
 ## Manual test
 
@@ -46,7 +49,7 @@ exists:
 2. The first poll for a newly tracked character announces its current most
    recent clear(s) from page 1 (not full history — just what's visible on
    that page), so something shows up in Discord right after registering
-   rather than staying silent. See `src/scheduler/worker.js`.
+   rather than staying silent. See `src/scheduler/poller.js`.
 3. Use `/check-now` to force a poll cycle any time without waiting for
    `POLL_INTERVAL_MINUTES`.
 4. To see it announce again, null out `last_seen_log_id` for that row and run

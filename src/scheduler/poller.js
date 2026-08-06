@@ -1,7 +1,4 @@
-import { Worker } from 'bullmq';
-import { connection } from './connection.js';
-import { raidPollQueue } from './queue.js';
-import { listEnabledWithAccount, getEnabledWithAccountById, updateLastSeen } from '../db/trackedCharacters.js';
+import { listEnabledWithAccount, updateLastSeen } from '../db/trackedCharacters.js';
 import { markNeedsReauth } from '../db/linkedAccounts.js';
 import { getAnnouncementChannel } from '../db/guildSettings.js';
 import { recordClear } from '../db/clearHistory.js';
@@ -10,21 +7,20 @@ import { getCharacterLogs } from '../lostarkbible/client.js';
 import { decryptToken } from '../crypto/tokenCipher.js';
 import { buildClearMessage, getRole } from '../notify/embed.js';
 import { TokenExpiredError, InsufficientScopeError } from '../lostarkbible/errors.js';
+import { config } from '../config.js';
 
-const CHECK_JOB_OPTS = { removeOnComplete: true, removeOnFail: true };
 const EMBED_LIMIT_PER_MESSAGE = 10; // Discord's hard cap
 const CLAIM_WAIT_RETRIES = 10;
 const CLAIM_WAIT_INTERVAL_MS = 500;
+// Stay under lostark.bible's rate limit — previously enforced by BullMQ's
+// `limiter: { max: 5, duration: 1000 }`. Polling now runs entirely
+// in-process (this is a single-instance bot, a distributed job queue was
+// pure Redis-request overhead we didn't need — see the Upstash free-tier
+// blowout this replaced), so it's just a flat delay between characters.
+const PER_CHARACTER_DELAY_MS = 200;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function processTick() {
-  const rows = await listEnabledWithAccount();
-  for (const row of rows) {
-    await raidPollQueue.add('check-character', { trackedCharacterId: row.id }, CHECK_JOB_OPTS);
-  }
 }
 
 /**
@@ -75,10 +71,7 @@ async function announceClear(discordClient, guildId, channelId, entry, viewMode)
   });
 }
 
-async function processCheckCharacter(discordClient, { trackedCharacterId }) {
-  const row = await getEnabledWithAccountById(trackedCharacterId);
-  if (!row) return; // disabled/deleted since it was queued
-
+async function processCharacter(discordClient, row) {
   if (row.account_status !== 'active') return;
   if (new Date(row.token_expires_at) <= new Date()) {
     await markNeedsReauth(row.linked_account_id);
@@ -144,20 +137,39 @@ async function processCheckCharacter(discordClient, { trackedCharacterId }) {
   await updateLastSeen(row.id, newest.id, identity);
 }
 
-export function createRaidPollWorker(discordClient) {
-  return new Worker(
-    'raid-poll',
-    async (job) => {
-      if (job.name === 'tick') {
-        await processTick();
-      } else if (job.name === 'check-character') {
-        await processCheckCharacter(discordClient, job.data);
+let ticking = false;
+
+/**
+ * One full pass over every enabled tracked character, sequentially with a
+ * small delay between each to stay under lostark.bible's rate limit. A
+ * per-character try/catch keeps one character's failure from aborting the
+ * rest of the tick (BullMQ used to give this isolation for free via
+ * per-job failure handling — now it's explicit).
+ */
+export async function runPollTick(discordClient) {
+  if (ticking) {
+    console.warn('Poll tick already in progress, skipping this trigger.');
+    return;
+  }
+  ticking = true;
+  try {
+    const rows = await listEnabledWithAccount();
+    for (const row of rows) {
+      try {
+        await processCharacter(discordClient, row);
+      } catch (err) {
+        console.error(`Error polling tracked character ${row.id} (${row.character_name}):`, err);
       }
-    },
-    {
-      connection,
-      // Rate-limit outbound lostark.bible API calls across all check jobs.
-      limiter: { max: 5, duration: 1000 },
-    },
-  );
+      await sleep(PER_CHARACTER_DELAY_MS);
+    }
+  } finally {
+    ticking = false;
+  }
+}
+
+export function startPolling(discordClient) {
+  const intervalMs = config.pollIntervalMinutes * 60 * 1000;
+  setInterval(() => {
+    runPollTick(discordClient).catch((err) => console.error('Poll tick failed:', err));
+  }, intervalMs);
 }

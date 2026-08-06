@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
-import { enqueueImmediateTick } from '../../scheduler/queue.js';
+import { runPollTick } from '../../scheduler/poller.js';
 
 export const checkNowCommand = {
   data: new SlashCommandBuilder()
@@ -8,9 +8,11 @@ export const checkNowCommand = {
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
-    await enqueueImmediateTick();
+    // Fire-and-forget — same UX as before, the reply doesn't wait for the
+    // full pass over every tracked character to finish.
+    runPollTick(interaction.client).catch((err) => console.error('Manual poll tick failed:', err));
     await interaction.reply({
-      content: 'Queued an immediate poll cycle for all tracked characters.',
+      content: 'Started an immediate poll cycle for all tracked characters.',
       flags: MessageFlags.Ephemeral,
     });
   },

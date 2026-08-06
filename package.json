@@ -13,10 +13,8 @@
     "deploy-commands": "node src/discord/deployCommands.js"
   },
   "dependencies": {
-    "bullmq": "^5.34.5",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.7",
-    "ioredis": "^5.4.2",
     "node-pg-migrate": "^7.9.1",
     "pg": "^8.13.1"
   }
