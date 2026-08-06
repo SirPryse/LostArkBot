@@ -7,6 +7,7 @@ import { fetchLogsSince } from '../../lostarkbible/weeklyLogs.js';
 import { RAID_FAMILIES, getRaidFamilyForBoss } from '../../notify/raidFamilies.js';
 import { lastWednesdayReset } from '../../notify/raidWeek.js';
 import { getClassEmoji } from '../../notify/classIcons.js';
+import { formatStat } from '../../notify/embed.js';
 
 /** `<:name:id>` — the inline-text form of a custom emoji, distinct from the
  * `{id, name}` object `.setEmoji()` wants on a component. */
@@ -19,7 +20,7 @@ function emojiTag(classNameOrIconKey) {
  * progress as a monospace table in the value so the columns line up. */
 function buildCharacterField(characterName, entries, clearedGatesByFamily) {
   const newest = entries[0]; // recent-first
-  const header = `${emojiTag(newest.class)} ${characterName}`.trim();
+  const header = `${emojiTag(newest.class)} ${characterName} (iLvl: ${formatStat(newest.gearScore)})`.trim();
 
   const rows = RAID_FAMILIES.filter((family) => clearedGatesByFamily.has(family.key)).map((family) => ({
     label: family.label,
