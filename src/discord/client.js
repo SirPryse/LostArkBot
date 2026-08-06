@@ -8,6 +8,7 @@ import { trackCharacterCommand } from './commands/trackCharacter.js';
 import { untrackCharacterCommand } from './commands/untrackCharacter.js';
 import { characterPageCommand } from './commands/characterPage.js';
 import { bonkCommand } from './commands/bonk.js';
+import { clearChannelCommand } from './commands/clearChannel.js';
 
 const COMMANDS = [
   announceChannelCommand,
@@ -18,6 +19,7 @@ const COMMANDS = [
   untrackCharacterCommand,
   characterPageCommand,
   bonkCommand,
+  clearChannelCommand,
 ];
 
 async function replyWithError(interaction, err, label) {
