@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { listEnabledWithAccount, updateLastSeen } from '../db/trackedCharacters.js';
 import { markNeedsReauth } from '../db/linkedAccounts.js';
 import { getAnnouncementChannel } from '../db/guildSettings.js';
@@ -6,6 +8,7 @@ import { claim, setMessage, get as getGroupPost } from '../db/raidGroupPosts.js'
 import { getCharacterLogs } from '../lostarkbible/client.js';
 import { decryptToken } from '../crypto/tokenCipher.js';
 import { buildClearMessage, getRole } from '../notify/embed.js';
+import { getBossImagePath } from '../notify/bossImages.js';
 import { TokenExpiredError, InsufficientScopeError } from '../lostarkbible/errors.js';
 import { config } from '../config.js';
 
@@ -58,16 +61,43 @@ async function announceClear(discordClient, guildId, channelId, entry, viewMode)
   }
 
   const channel = await discordClient.channels.fetch(existing.channel_id);
-  const existingMessage = await channel.messages.fetch(existing.message_id);
+  // force: true — this message is likely already cached from a previous
+  // poll's edit, and a cached read here would miss whatever the most
+  // recent party member's edit just added, silently dropping their embed
+  // from the next append instead of building on top of it.
+  const existingMessage = await channel.messages.fetch({ message: existing.message_id, force: true });
 
   if (existingMessage.embeds.length >= EMBED_LIMIT_PER_MESSAGE) {
     await channel.send(message); // full raid party hit Discord's embed cap
     return;
   }
 
+  // Confirmed live: editing a message at all invalidates whichever
+  // attachment(s) were backing its existing embeds' images — regardless of
+  // whether the edit uploads a new file, and regardless of reusing the old
+  // (still "valid"-looking) CDN URL, both leave the image 404ing afterward.
+  // Those attachments never show up in message.attachments either (only
+  // ever referenced from inside an embed), so there's no id to explicitly
+  // "retain" via Discord's API even if we wanted to.
+  //
+  // Instead: every edit uploads exactly one fresh copy of the boss image,
+  // and every embed on the message — old ones included, not just the one
+  // being appended — gets repointed at that single fresh attachment. Old
+  // embeds all show the same boss anyway, so there's nothing lost by having
+  // them all share one upload; this just makes each edit self-contained
+  // instead of depending on an upload from a previous, separate request.
+  const imagePath = getBossImagePath(entry.boss);
+  const refreshFilename = `boss-${entry.id}-refresh-${existingMessage.embeds.length}${path.extname(imagePath)}`;
+  const refreshAttachment = new AttachmentBuilder(imagePath, { name: refreshFilename });
+
+  const refreshedOldEmbeds = existingMessage.embeds.map((embed) =>
+    EmbedBuilder.from(embed).setThumbnail(`attachment://${refreshFilename}`),
+  );
+  message.embeds[0].setThumbnail(`attachment://${refreshFilename}`);
+
   await existingMessage.edit({
-    embeds: [...existingMessage.embeds, ...message.embeds],
-    files: message.files,
+    embeds: [...refreshedOldEmbeds, ...message.embeds],
+    files: [refreshAttachment],
   });
 }
 
