@@ -82,6 +82,20 @@ export async function listByGuild(guildId) {
   return rows;
 }
 
+/** Distinct characters an account tracks, deduped across guilds — the same
+ * Lost Ark character can be tracked in multiple servers for announcements,
+ * but a roster-wide check like /roster-status only needs it once. */
+export async function listDistinctByLinkedAccount(linkedAccountId) {
+  const { rows } = await pool.query(
+    `select distinct on (character_name, region) character_name, region
+     from tracked_characters
+     where linked_account_id = $1 and enabled = true
+     order by character_name, region`,
+    [linkedAccountId],
+  );
+  return rows;
+}
+
 export async function listByLinkedAccountAndGuild(linkedAccountId, guildId) {
   const { rows } = await pool.query(
     `select id, character_name, region, view_mode, class_name

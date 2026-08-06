@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { getBossImagePath } from './bossImages.js';
 import { tierForFraction } from './percentileTiers.js';
@@ -105,10 +106,12 @@ export function buildClearMessage(logEntry, viewMode = 'competitive') {
 
   // Filename includes the log id so multiple party members' embeds (same
   // boss, same image) can coexist as separate attachments in one message
-  // when a raid clear gets consolidated — reusing "boss.png" for all of
-  // them would collide.
-  const filename = `boss-${logEntry.id}.png`;
-  const attachment = new AttachmentBuilder(getBossImagePath(logEntry.boss), { name: filename });
+  // when a raid clear gets consolidated — reusing a fixed name for all of
+  // them would collide. Extension is kept from the source file (some boss
+  // banners are .webp, not .png) so Discord doesn't misread the format.
+  const imagePath = getBossImagePath(logEntry.boss);
+  const filename = `boss-${logEntry.id}${path.extname(imagePath)}`;
+  const attachment = new AttachmentBuilder(imagePath, { name: filename });
 
   const embed = new EmbedBuilder()
     .setTitle(`${logEntry.name} cleared ${logEntry.boss}`)

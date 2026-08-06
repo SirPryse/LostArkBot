@@ -7,6 +7,7 @@ import { registeredUsersCommand } from './commands/registeredUsers.js';
 import { trackCharacterCommand } from './commands/trackCharacter.js';
 import { untrackCharacterCommand } from './commands/untrackCharacter.js';
 import { characterPageCommand } from './commands/characterPage.js';
+import { bonkCommand } from './commands/bonk.js';
 
 const COMMANDS = [
   announceChannelCommand,
@@ -16,6 +17,7 @@ const COMMANDS = [
   trackCharacterCommand,
   untrackCharacterCommand,
   characterPageCommand,
+  bonkCommand,
 ];
 
 async function replyWithError(interaction, err, label) {
