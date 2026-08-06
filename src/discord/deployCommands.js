@@ -9,6 +9,7 @@ import { untrackCharacterCommand } from './commands/untrackCharacter.js';
 import { characterPageCommand } from './commands/characterPage.js';
 import { bonkCommand } from './commands/bonk.js';
 import { clearChannelCommand } from './commands/clearChannel.js';
+import { rosterPageCommand } from './commands/rosterPage.js';
 
 const commands = [
   announceChannelCommand,
@@ -20,6 +21,7 @@ const commands = [
   characterPageCommand,
   bonkCommand,
   clearChannelCommand,
+  rosterPageCommand,
 ].map((command) => command.data.toJSON());
 
 const rest = new REST().setToken(config.discordToken);

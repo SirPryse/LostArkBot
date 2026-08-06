@@ -39,3 +39,27 @@ export async function getStats(trackedCharacterId, tierMins) {
     contributionTierCounts: tallyTiers(rows.map((r) => r.contribution_percentile), tierMins),
   };
 }
+
+/**
+ * Same shape as getStats, but pooled across every competitive-view tracked
+ * character an account has in one guild instead of a single character —
+ * used by /roster-page. DPS and support clears are merged into one `percentile`
+ * tally on purpose (that's the whole point of the combined view); contribution
+ * percentile isn't part of it since it's a support-only second axis with no
+ * DPS equivalent to merge it against.
+ */
+export async function getAggregateStats(linkedAccountId, guildId, tierMins) {
+  const { rows } = await pool.query(
+    `select ch.percentile, ch.died
+     from clear_history ch
+     join tracked_characters tc on tc.id = ch.tracked_character_id
+     where tc.linked_account_id = $1 and tc.guild_id = $2 and tc.view_mode = 'competitive'`,
+    [linkedAccountId, guildId],
+  );
+
+  return {
+    total: rows.length,
+    diedCount: rows.filter((r) => r.died).length,
+    tierCounts: tallyTiers(rows.map((r) => r.percentile), tierMins),
+  };
+}
