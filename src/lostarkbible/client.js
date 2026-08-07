@@ -1,7 +1,18 @@
 import { config } from '../config.js';
 import { TokenExpiredError, InsufficientScopeError } from './errors.js';
 
-async function request(path, accessToken) {
+// 429 ("slow_down") is a shared app-wide throttle, not a per-caller thing —
+// callers like /bonk (one big burst of requests for a large roster) can hit
+// it even when the background poller is already pacing itself. Retrying
+// with backoff here fixes it once for every caller instead of needing
+// retry logic duplicated in each command.
+const MAX_RATE_LIMIT_RETRIES = 4;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function request(path, accessToken, attempt = 0) {
   const response = await fetch(`${config.laBibleBaseUrl}${path}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -14,6 +25,16 @@ async function request(path, accessToken) {
   }
   if (response.status === 404) {
     return null;
+  }
+  if (response.status === 429) {
+    if (attempt >= MAX_RATE_LIMIT_RETRIES) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`lostark.bible request failed: 429 ${body}`);
+    }
+    const retryAfterHeader = response.headers.get('retry-after');
+    const delayMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 2 ** attempt * 1000;
+    await sleep(delayMs);
+    return request(path, accessToken, attempt + 1);
   }
   if (!response.ok) {
     const body = await response.text().catch(() => '');
