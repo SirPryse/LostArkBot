@@ -7,7 +7,7 @@ import { fetchLogsSince } from '../../lostarkbible/weeklyLogs.js';
 import { RAID_FAMILIES, getRaidFamilyForBoss } from '../../notify/raidFamilies.js';
 import { lastWednesdayReset } from '../../notify/raidWeek.js';
 import { getClassEmoji } from '../../notify/classIcons.js';
-import { formatStat } from '../../notify/embed.js';
+import { formatStat } from '../../notify/clearMessage.js';
 
 /** `<:name:id>` — the inline-text form of a custom emoji, distinct from the
  * `{id, name}` object `.setEmoji()` wants on a component. */

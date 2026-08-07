@@ -9,7 +9,7 @@ import {
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
 import { getAggregateStats } from '../../db/clearHistory.js';
 import { TIERS } from '../../notify/percentileTiers.js';
-import { FALLBACK_COLOR } from '../../notify/embed.js';
+import { FALLBACK_COLOR } from '../../notify/clearMessage.js';
 
 const VISIBILITY_PREFIX = 'roster-page-vis:';
 

@@ -12,7 +12,7 @@ import { getRosters } from '../../lostarkbible/client.js';
 import { decryptToken } from '../../crypto/tokenCipher.js';
 import { TokenExpiredError, InsufficientScopeError } from '../../lostarkbible/errors.js';
 import { getDisplayNameForIconKey, getClassEmoji } from '../../notify/classIcons.js';
-import { formatStat } from '../../notify/embed.js';
+import { formatStat } from '../../notify/clearMessage.js';
 
 const APP_PAGE_URL = 'https://lost-ark-app-page.vercel.app';
 const SELECT_PREFIX = 'track-character-select:';

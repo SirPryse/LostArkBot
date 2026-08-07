@@ -13,7 +13,7 @@ import { listByLinkedAccountAndGuild, getByIdForOwner, getByIdForDiscordUser } f
 import { getStats } from '../../db/clearHistory.js';
 import { getClassIconPath } from '../../notify/classIcons.js';
 import { TIERS } from '../../notify/percentileTiers.js';
-import { SUPPORT_COLOR, DPS_COLOR, FALLBACK_COLOR, formatStat } from '../../notify/embed.js';
+import { SUPPORT_COLOR, DPS_COLOR, FALLBACK_COLOR, formatStat } from '../../notify/clearMessage.js';
 
 const SELECT_PREFIX = 'character-page-select:';
 const VISIBILITY_PREFIX = 'character-page-vis:';

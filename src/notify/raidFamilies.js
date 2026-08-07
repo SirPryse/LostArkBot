@@ -48,3 +48,11 @@ for (const family of RAID_FAMILIES) {
 export function getRaidFamilyForBoss(bossName) {
   return GATE_BY_BOSS.get(bossName) ?? null;
 }
+
+/** Friendlier "{Raid} Gate {N}" label for a boss name (e.g. "Archbishop
+ * Arcenos" -> "Cathedral Gate 1") — falls back to the raw boss name for
+ * anything not in a known family (e.g. Aegir, which isn't grouped). */
+export function getFriendlyBossName(bossName) {
+  const match = getRaidFamilyForBoss(bossName);
+  return match ? `${match.family.label} Gate ${match.gateIndex + 1}` : bossName;
+}

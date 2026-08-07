@@ -1,5 +1,3 @@
-import path from 'node:path';
-import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { listEnabledWithAccount, updateLastSeen } from '../db/trackedCharacters.js';
 import { markNeedsReauth } from '../db/linkedAccounts.js';
 import { getAnnouncementChannel } from '../db/guildSettings.js';
@@ -7,12 +5,10 @@ import { recordClear } from '../db/clearHistory.js';
 import { claim, setMessage, get as getGroupPost } from '../db/raidGroupPosts.js';
 import { getCharacterLogs } from '../lostarkbible/client.js';
 import { decryptToken } from '../crypto/tokenCipher.js';
-import { buildClearMessage, getRole } from '../notify/embed.js';
-import { getBossImagePath } from '../notify/bossImages.js';
+import { buildInitialClearMessage, buildAppendedClearMessage, getRole } from '../notify/clearMessage.js';
 import { TokenExpiredError, InsufficientScopeError } from '../lostarkbible/errors.js';
 import { config } from '../config.js';
 
-const EMBED_LIMIT_PER_MESSAGE = 10; // Discord's hard cap
 const CLAIM_WAIT_RETRIES = 10;
 const CLAIM_WAIT_INTERVAL_MS = 500;
 // Stay under lostark.bible's rate limit — previously enforced by BullMQ's
@@ -31,16 +27,17 @@ function sleep(ms) {
  * cleared the same raid together (confirmed: identical id + identical
  * millisecond timestamp across different accounts). Whoever's poll job gets
  * here first for a given (guild, log id) claims it and posts a fresh
- * message; everyone else appends their own embed to that same message
- * instead of posting a separate one.
+ * message; everyone else appends their own block onto that same message's
+ * Container instead of posting a separate one — see clearMessage.js for
+ * the actual layout/append logic, this is just the claim/fetch/send
+ * orchestration around it.
  */
-async function announceClear(discordClient, guildId, channelId, entry, viewMode) {
-  const message = buildClearMessage(entry, viewMode);
+export async function announceClear(discordClient, guildId, channelId, entry, viewMode) {
   const { won } = await claim(guildId, entry.id);
 
   if (won) {
     const channel = await discordClient.channels.fetch(channelId);
-    const sent = await channel.send(message);
+    const sent = await channel.send(buildInitialClearMessage(entry, viewMode));
     await setMessage(guildId, entry.id, channelId, sent.id);
     return;
   }
@@ -56,49 +53,31 @@ async function announceClear(discordClient, guildId, channelId, entry, viewMode)
     // Whoever claimed it never finished (crashed mid-post?) — don't block
     // this announcement on them forever.
     const channel = await discordClient.channels.fetch(channelId);
-    await channel.send(message);
+    await channel.send(buildInitialClearMessage(entry, viewMode));
     return;
   }
 
   const channel = await discordClient.channels.fetch(existing.channel_id);
   // force: true — this message is likely already cached from a previous
   // poll's edit, and a cached read here would miss whatever the most
-  // recent party member's edit just added, silently dropping their embed
+  // recent party member's edit just added, silently dropping their block
   // from the next append instead of building on top of it.
   const existingMessage = await channel.messages.fetch({ message: existing.message_id, force: true });
+  const existingContainerJson = existingMessage.components[0]?.toJSON();
 
-  if (existingMessage.embeds.length >= EMBED_LIMIT_PER_MESSAGE) {
-    await channel.send(message); // full raid party hit Discord's embed cap
+  const appended = existingContainerJson
+    ? buildAppendedClearMessage(existingContainerJson, entry, viewMode)
+    : null;
+
+  if (!appended) {
+    // Either the container is missing (shouldn't happen) or it's already
+    // at the component-count safety cap — post a fresh message instead of
+    // forcing an append.
+    await channel.send(buildInitialClearMessage(entry, viewMode));
     return;
   }
 
-  // Confirmed live: editing a message at all invalidates whichever
-  // attachment(s) were backing its existing embeds' images — regardless of
-  // whether the edit uploads a new file, and regardless of reusing the old
-  // (still "valid"-looking) CDN URL, both leave the image 404ing afterward.
-  // Those attachments never show up in message.attachments either (only
-  // ever referenced from inside an embed), so there's no id to explicitly
-  // "retain" via Discord's API even if we wanted to.
-  //
-  // Instead: every edit uploads exactly one fresh copy of the boss image,
-  // and every embed on the message — old ones included, not just the one
-  // being appended — gets repointed at that single fresh attachment. Old
-  // embeds all show the same boss anyway, so there's nothing lost by having
-  // them all share one upload; this just makes each edit self-contained
-  // instead of depending on an upload from a previous, separate request.
-  const imagePath = getBossImagePath(entry.boss);
-  const refreshFilename = `boss-${entry.id}-refresh-${existingMessage.embeds.length}${path.extname(imagePath)}`;
-  const refreshAttachment = new AttachmentBuilder(imagePath, { name: refreshFilename });
-
-  const refreshedOldEmbeds = existingMessage.embeds.map((embed) =>
-    EmbedBuilder.from(embed).setThumbnail(`attachment://${refreshFilename}`),
-  );
-  message.embeds[0].setThumbnail(`attachment://${refreshFilename}`);
-
-  await existingMessage.edit({
-    embeds: [...refreshedOldEmbeds, ...message.embeds],
-    files: [refreshAttachment],
-  });
+  await existingMessage.edit(appended);
 }
 
 async function processCharacter(discordClient, row) {
