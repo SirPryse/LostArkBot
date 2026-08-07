@@ -17,6 +17,8 @@ import { tierForFraction } from '../../notify/percentileTiers.js';
 
 const PICK_PREFIX = 'guess-parse-pick:';
 const MAX_ANSWER_ATTEMPTS = 5; // some tracked characters may have no logs yet
+const MIN_LOG_PAGE = 1;
+const MAX_LOG_PAGE = 10; // pull from a random page, not always the most recent clear
 const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 
 // Auroral Teahouse's own custom emoji — usable in message text regardless
@@ -51,7 +53,7 @@ const DIFFICULTY = {
 const IDENTIFYING_FIELDS = [
   { key: 'difficulty', label: 'Difficulty', scope: 'description', getValue: (e) => e.difficulty },
   { key: 'class', label: 'Class', scope: 'description', getValue: (e) => `${e.class} (${e.spec})` },
-  { key: 'gearScore', label: 'Gear Score', scope: 'description', getValue: (e) => formatGearScoreRange(e.gearScore) },
+  { key: 'gearScore', label: 'Gear Score', scope: 'description', getValue: (e) => formatStat(e.gearScore) },
   { key: 'combatPower', label: 'Combat Power', scope: 'description', getValue: (e) => formatStat(e.combatPower) },
   { key: 'duration', label: 'Duration', scope: 'description', getValue: (e) => formatDuration(e.duration) },
 ];
@@ -159,16 +161,22 @@ function formatDuration(ms) {
   return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
 }
 
-// Even when Gear Score isn't the field a round chose to redact, showing the
-// exact value is still often a dead giveaway (regulars tend to know their
-// raid teammates' precise iLvl) — bucket it into a coarse range instead.
-// Everything below 1730 collapses into one open-ended low bucket, and
-// everything 1750+ collapses into one open-ended high bucket, with a single
-// 20-point band in between.
-function formatGearScoreRange(gearScore) {
+// Gear Score itself is always shown as its real, exact value when it isn't
+// the field a round chose to redact — but that exact number is still a
+// giveaway if the 3 choices span wildly different iLvls (regulars tend to
+// know teammates' precise Gear Score). So instead the decoys are picked to
+// share the answer's bucket where possible, not the displayed value. Below
+// 1730 collapses into one open-ended low bucket, 1770+ into one open-ended
+// high bucket, with two 20-point bands in between.
+function gearScoreBucket(gearScore) {
   if (gearScore < 1730) return '< 1730';
   if (gearScore < 1750) return '1730-1750';
-  return '1750+';
+  if (gearScore < 1770) return '1750-1770';
+  return '1770+';
+}
+
+function randomInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 function shuffle(array) {
@@ -276,7 +284,16 @@ async function pickAnswer(candidates) {
   for (const candidate of shuffled.slice(0, MAX_ANSWER_ATTEMPTS)) {
     try {
       const accessToken = decryptToken(candidate.access_token);
-      const entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, { page: 1 });
+      // Random page so the round isn't always this character's most recent
+      // clear — makes the round less guessable from "what did X do today".
+      const page = randomInt(MIN_LOG_PAGE, MAX_LOG_PAGE);
+      let entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, { page });
+      if (!entries || entries.length === 0) {
+        // That page might just be past the end of this character's history
+        // — fall back to page 1 (guaranteed to have data if they have any
+        // logs at all) instead of burning an attempt on a real candidate.
+        entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, { page: 1 });
+      }
       if (entries && entries.length > 0) {
         return { candidate, entry: entries[0] };
       }
@@ -285,6 +302,31 @@ async function pickAnswer(candidates) {
     }
   }
   return null;
+}
+
+async function fetchGearScore(candidate) {
+  try {
+    const accessToken = decryptToken(candidate.access_token);
+    const entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, { page: 1 });
+    return entries && entries.length > 0 ? entries[0].gearScore : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Picks 2 decoys, preferring characters in the same Gear Score bucket as
+ * the answer — since the real Gear Score value stays visible whenever it
+ * isn't the field a round redacted, choices spanning wildly different
+ * iLvls would make the guess trivial for anyone who knows the roster.
+ * Falls back to any other candidate if the bucket doesn't have enough. */
+async function pickDecoys(decoyPool, answerGearScore) {
+  const answerBucket = gearScoreBucket(answerGearScore);
+  const scored = await Promise.all(
+    decoyPool.map(async (c) => ({ name: c.character_name, gearScore: await fetchGearScore(c) })),
+  );
+  const sameBucket = shuffle(scored.filter((c) => c.gearScore !== null && gearScoreBucket(c.gearScore) === answerBucket));
+  const rest = shuffle(scored.filter((c) => c.gearScore === null || gearScoreBucket(c.gearScore) !== answerBucket));
+  return [...sameBucket, ...rest].slice(0, 2).map((c) => c.name);
 }
 
 export const guessParseCommand = {
@@ -327,9 +369,7 @@ export const guessParseCommand = {
 
     const { candidate: answerCandidate, entry } = picked;
     const decoyPool = distinctByName.filter((c) => c.character_name !== answerCandidate.character_name);
-    const decoys = shuffle(decoyPool)
-      .slice(0, 2)
-      .map((c) => c.character_name);
+    const decoys = await pickDecoys(decoyPool, entry.gearScore);
     const choices = shuffle([answerCandidate.character_name, ...decoys]);
     const correctIndex = choices.indexOf(answerCandidate.character_name);
 
