@@ -24,6 +24,27 @@ export async function listEnabledWithAccount() {
   return rows;
 }
 
+/** Competitive-view characters (need real stats to show, compact ones don't
+ * record them) in one guild with an active, usable linked account — the
+ * eligible pool for /guess-parse. */
+export async function listCompetitiveWithAccountByGuild(guildId) {
+  const { rows } = await pool.query(
+    `select
+      tc.id,
+      tc.character_name,
+      tc.region,
+      la.id as linked_account_id,
+      la.access_token,
+      la.token_expires_at,
+      la.status as account_status
+    from tracked_characters tc
+    join linked_accounts la on la.id = tc.linked_account_id
+    where tc.enabled = true and tc.guild_id = $1 and tc.view_mode = 'competitive' and la.status = 'active'`,
+    [guildId],
+  );
+  return rows;
+}
+
 export async function getEnabledByGuildAndName(guildId, characterName) {
   const { rows } = await pool.query(
     `select

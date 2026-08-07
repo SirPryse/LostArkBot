@@ -10,6 +10,8 @@ import { characterPageCommand } from './commands/characterPage.js';
 import { bonkCommand } from './commands/bonk.js';
 import { clearChannelCommand } from './commands/clearChannel.js';
 import { rosterPageCommand } from './commands/rosterPage.js';
+import { guessParseCommand } from './commands/guessParse.js';
+import { guessLeaderboardCommand } from './commands/guessLeaderboard.js';
 
 const commands = [
   announceChannelCommand,
@@ -22,6 +24,8 @@ const commands = [
   bonkCommand,
   clearChannelCommand,
   rosterPageCommand,
+  guessParseCommand,
+  guessLeaderboardCommand,
 ].map((command) => command.data.toJSON());
 
 const rest = new REST().setToken(config.discordToken);
