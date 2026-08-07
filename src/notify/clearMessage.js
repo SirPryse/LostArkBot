@@ -201,6 +201,24 @@ export function buildInitialClearMessage(logEntry, viewMode = 'competitive') {
 }
 
 /**
+ * True if this character's block is already present in the container —
+ * guards against a duplicate append when a poll tick retries an
+ * announcement that partially succeeded (e.g. an earlier member in the
+ * same tick's loop posted fine, then a later one in the same batch threw,
+ * so `updateLastSeen` never ran and the whole batch — including this
+ * already-announced member — gets reprocessed next tick). Every member's
+ * header always contains "{name} cleared ", so a substring check is enough
+ * without needing to parse the full component tree.
+ */
+export function containerHasMember(containerJson, characterName) {
+  return containerJson.components.some((component) => {
+    if (component.type !== ComponentType.Section) return false;
+    const text = component.components?.[0]?.content ?? '';
+    return text.includes(`${characterName} cleared `);
+  });
+}
+
+/**
  * A later party member's clear, appended onto an existing consolidated
  * message. `existingContainerJson` is the raw JSON of that message's
  * single top-level Container (from `message.components[0].toJSON()`).

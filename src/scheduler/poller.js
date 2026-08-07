@@ -5,7 +5,12 @@ import { recordClear } from '../db/clearHistory.js';
 import { claim, setMessage, get as getGroupPost } from '../db/raidGroupPosts.js';
 import { getCharacterLogs } from '../lostarkbible/client.js';
 import { decryptToken } from '../crypto/tokenCipher.js';
-import { buildInitialClearMessage, buildAppendedClearMessage, getRole } from '../notify/clearMessage.js';
+import {
+  buildInitialClearMessage,
+  buildAppendedClearMessage,
+  containerHasMember,
+  getRole,
+} from '../notify/clearMessage.js';
 import { TokenExpiredError, InsufficientScopeError } from '../lostarkbible/errors.js';
 import { config } from '../config.js';
 
@@ -18,8 +23,29 @@ const CLAIM_WAIT_INTERVAL_MS = 500;
 // blowout this replaced), so it's just a flat delay between characters.
 const PER_CHARACTER_DELAY_MS = 200;
 
+// setMessage is a plain DB write immediately after a successful Discord
+// send — if it fails (a DB blip, not a Discord problem, since we already
+// have `sent` at that point), a retry of this same announcement later would
+// see the claim already taken but no message_id recorded, and fall back to
+// posting a second, duplicate top-level message. A few quick retries close
+// that window for what should be a very reliable write.
+const SET_MESSAGE_RETRIES = 3;
+const SET_MESSAGE_RETRY_DELAY_MS = 300;
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function setMessageWithRetry(guildId, logId, channelId, messageId) {
+  for (let attempt = 1; attempt <= SET_MESSAGE_RETRIES; attempt++) {
+    try {
+      await setMessage(guildId, logId, channelId, messageId);
+      return;
+    } catch (err) {
+      if (attempt === SET_MESSAGE_RETRIES) throw err;
+      await sleep(SET_MESSAGE_RETRY_DELAY_MS);
+    }
+  }
 }
 
 /**
@@ -38,7 +64,7 @@ export async function announceClear(discordClient, guildId, channelId, entry, vi
   if (won) {
     const channel = await discordClient.channels.fetch(channelId);
     const sent = await channel.send(buildInitialClearMessage(entry, viewMode));
-    await setMessage(guildId, entry.id, channelId, sent.id);
+    await setMessageWithRetry(guildId, entry.id, channelId, sent.id);
     return;
   }
 
@@ -64,6 +90,14 @@ export async function announceClear(discordClient, guildId, channelId, entry, vi
   // from the next append instead of building on top of it.
   const existingMessage = await channel.messages.fetch({ message: existing.message_id, force: true });
   const existingContainerJson = existingMessage.components[0]?.toJSON();
+
+  if (existingContainerJson && containerHasMember(existingContainerJson, entry.name)) {
+    // Already recorded — this poll tick is retrying a batch where this
+    // character's clear was appended successfully before a later failure
+    // (in this same tick or an earlier one) kept `updateLastSeen` from
+    // running. Appending again would duplicate this member's block.
+    return;
+  }
 
   const appended = existingContainerJson
     ? buildAppendedClearMessage(existingContainerJson, entry, viewMode)
