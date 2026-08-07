@@ -139,10 +139,3 @@ export async function updateLastSeen(id, lastSeenLogId, { className, role, gearS
     [id, lastSeenLogId, className ?? null, role ?? null, gearScore ?? null, combatPower ?? null],
   );
 }
-
-export async function touchLastChecked(id) {
-  await pool.query(
-    'update tracked_characters set last_checked_at = now(), updated_at = now() where id = $1',
-    [id],
-  );
-}
