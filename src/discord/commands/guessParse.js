@@ -19,6 +19,13 @@ const PICK_PREFIX = 'guess-parse-pick:';
 const MAX_ANSWER_ATTEMPTS = 5; // some tracked characters may have no logs yet
 const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 
+// Auroral Teahouse's own custom emoji — usable in message text regardless
+// of which guild the round is running in, since Discord resolves <name:id>
+// tags purely by ID (only *reactions* require the bot to actually have
+// access to the emoji's home server; plain text/embed rendering doesn't).
+const WIN_EMOJI = '<:LETHIMCOOK:1515851556266967241>';
+const SHAME_EMOJI = '<a:L_:1516097479555420202>';
+
 // No timer — a round instead stays open until 3 different people have
 // guessed correctly. Being faster/more confident is rewarded directly:
 // the 1st correct guesser gets 5x the difficulty's base points, the 2nd
@@ -44,7 +51,7 @@ const DIFFICULTY = {
 const IDENTIFYING_FIELDS = [
   { key: 'difficulty', label: 'Difficulty', scope: 'description', getValue: (e) => e.difficulty },
   { key: 'class', label: 'Class', scope: 'description', getValue: (e) => `${e.class} (${e.spec})` },
-  { key: 'gearScore', label: 'Gear Score', scope: 'description', getValue: (e) => formatStat(e.gearScore) },
+  { key: 'gearScore', label: 'Gear Score', scope: 'description', getValue: (e) => formatGearScoreRange(e.gearScore) },
   { key: 'combatPower', label: 'Combat Power', scope: 'description', getValue: (e) => formatStat(e.combatPower) },
   { key: 'duration', label: 'Duration', scope: 'description', getValue: (e) => formatDuration(e.duration) },
 ];
@@ -152,6 +159,18 @@ function formatDuration(ms) {
   return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
 }
 
+// Even when Gear Score isn't the field a round chose to redact, showing the
+// exact value is still often a dead giveaway (regulars tend to know their
+// raid teammates' precise iLvl) — bucket it into a coarse range instead.
+// Everything below 1730 collapses into one open-ended low bucket, and
+// everything 1750+ collapses into one open-ended high bucket, with a single
+// 20-point band in between.
+function formatGearScoreRange(gearScore) {
+  if (gearScore < 1730) return '< 1730';
+  if (gearScore < 1750) return '1730-1750';
+  return '1750+';
+}
+
 function shuffle(array) {
   const copy = [...array];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -207,16 +226,24 @@ function buildRedactedEmbed(entry, difficultyKey, hiddenKeys, cells) {
 
 /** The running tally of who's guessed correctly so far this round, in the
  * order they guessed — shown as its own field once at least one person has
- * gotten it right, e.g. "🎉 X guessed correctly (+15 pts)!". */
+ * gotten it right, e.g. "LETHIMCOOK X guessed correctly (+15 pts)!". */
 function buildGuessesField(correctGuessers) {
   if (correctGuessers.length === 0) return null;
   const lines = correctGuessers.map(
-    (g) => `🎉 ${g.username} guessed correctly (+${g.points} pt${g.points === 1 ? '' : 's'})!`,
+    (g) => `${WIN_EMOJI} ${g.username} guessed correctly (+${g.points} pt${g.points === 1 ? '' : 's'})!`,
   );
   return { name: 'Correct Guesses', value: lines.join('\n') };
 }
 
-/** Rebuilds the round's embed from scratch each time someone guesses right —
+/** Public shame list — everyone who's burned their one guess on a wrong
+ * answer, in the order they whiffed it. */
+function buildWrongGuessesField(wrongGuessers) {
+  if (wrongGuessers.length === 0) return null;
+  const lines = wrongGuessers.map((g) => `${SHAME_EMOJI} ${g.username} guessed wrong!`);
+  return { name: 'Wall of Shame', value: lines.join('\n') };
+}
+
+/** Rebuilds the round's embed from scratch every time someone guesses —
  * still redacted per the round's original hiddenKeys until `revealed` is
  * true, at which point every hidden field (and the answer) is shown. */
 function buildRoundEmbed(round, revealed) {
@@ -224,6 +251,8 @@ function buildRoundEmbed(round, revealed) {
   const embed = buildRedactedEmbed(round.entry, round.difficultyKey, hiddenKeys, round.cells);
   const guessesField = buildGuessesField(round.correctGuessers);
   if (guessesField) embed.addFields(guessesField);
+  const shameField = buildWrongGuessesField(round.wrongGuessers);
+  if (shameField) embed.addFields(shameField);
   if (revealed) {
     embed.setFooter({ text: `Round over — it was ${round.correctName}!` });
   }
@@ -320,6 +349,7 @@ export const guessParseCommand = {
       hiddenKeys,
       basePoints: config.basePoints,
       correctGuessers: [], // { userId, username, points }, in guess order
+      wrongGuessers: [], // { userId, username }, in guess order — the shame list
       attemptedUsers: new Set(), // one guess per user, right or wrong
     };
     activeRounds.set(roundId, round);
@@ -356,7 +386,16 @@ export const guessParseCommand = {
         round.attemptedUsers.add(interaction.user.id);
 
         if (choiceIndex !== round.correctIndex) {
-          await interaction.reply({
+          round.wrongGuessers.push({ userId: interaction.user.id, username: interaction.user.username });
+
+          // Same ack-first pattern as the correct-guess path below — defer
+          // instantly, then the message edit (public shame list) and the
+          // personal ephemeral note both happen after, with no 3s deadline.
+          await interaction.deferUpdate();
+          const embed = buildRoundEmbed(round, false);
+          const buttons = buildButtons(roundId, round.choices, false);
+          await interaction.editReply({ embeds: [embed], components: [buttons] });
+          await interaction.followUp({
             content: '❌ Wrong — that was your one guess for this round!',
             flags: MessageFlags.Ephemeral,
           });
