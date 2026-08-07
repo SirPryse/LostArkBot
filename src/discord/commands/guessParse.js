@@ -16,22 +16,28 @@ import { getFriendlyBossName } from '../../notify/raidFamilies.js';
 import { tierForFraction } from '../../notify/percentileTiers.js';
 
 const PICK_PREFIX = 'guess-parse-pick:';
-const DEFAULT_DURATION_SECONDS = 90;
-const MIN_DURATION_SECONDS = 15;
-const MAX_DURATION_SECONDS = 300;
 const MAX_ANSWER_ATTEMPTS = 5; // some tracked characters may have no logs yet
 const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 
+// No timer — a round instead stays open until 3 different people have
+// guessed correctly. Being faster/more confident is rewarded directly:
+// the 1st correct guesser gets 5x the difficulty's base points, the 2nd
+// gets 3x, the 3rd gets 1x. Once the 3rd correct guess lands, the answer
+// and every hidden field get revealed and the round closes.
+const RANK_MULTIPLIERS = [5, 3, 1];
+const MAX_CORRECT_GUESSERS = RANK_MULTIPLIERS.length;
+
 // Difficulty controls how many fields below get redacted (in addition to the
-// name, which is always hidden) and how many points a correct guess is
-// worth — more hidden, harder to guess, worth more. The pool now includes
-// both the identifying metadata AND the performance stats, so at higher
-// difficulty a round can genuinely hide e.g. Buff Uptimes or Percentile,
-// not just secondary details like Combat Power.
+// name, which is always hidden) and the base points a correct guess is
+// worth before the rank multiplier above is applied — more hidden, harder
+// to guess, worth more. The pool now includes both the identifying metadata
+// AND the performance stats, so at higher difficulty a round can genuinely
+// hide e.g. Buff Uptimes or Percentile, not just secondary details like
+// Combat Power.
 const DIFFICULTY = {
-  easy: { label: 'Easy', hideCount: 1, points: 1 },
-  medium: { label: 'Medium', hideCount: 2, points: 2 },
-  hard: { label: 'Hard', hideCount: 3, points: 3 },
+  easy: { label: 'Easy', hideCount: 1, basePoints: 1 },
+  medium: { label: 'Medium', hideCount: 2, basePoints: 2 },
+  hard: { label: 'Hard', hideCount: 3, basePoints: 3 },
 };
 
 // Identifying/metadata fields — rendered in the embed description.
@@ -179,7 +185,34 @@ function buildRedactedEmbed(entry, difficultyKey, hiddenKeys, cells) {
     .setDescription(descriptionLines.join('\n'))
     .addFields(fields)
     .setColor(FALLBACK_COLOR)
-    .setFooter({ text: `${config.label} (${config.points} pt) — pick who you think this is` });
+    .setFooter({
+      text: `${config.label} (${config.basePoints} base pt) — 1st guess 5x, 2nd guess 3x, 3rd guess 1x`,
+    });
+}
+
+/** The running tally of who's guessed correctly so far this round, in the
+ * order they guessed — shown as its own field once at least one person has
+ * gotten it right, e.g. "🎉 X guessed correctly (+15 pts)!". */
+function buildGuessesField(correctGuessers) {
+  if (correctGuessers.length === 0) return null;
+  const lines = correctGuessers.map(
+    (g) => `🎉 ${g.username} guessed correctly (+${g.points} pt${g.points === 1 ? '' : 's'})!`,
+  );
+  return { name: 'Correct Guesses', value: lines.join('\n') };
+}
+
+/** Rebuilds the round's embed from scratch each time someone guesses right —
+ * still redacted per the round's original hiddenKeys until `revealed` is
+ * true, at which point every hidden field (and the answer) is shown. */
+function buildRoundEmbed(round, revealed) {
+  const hiddenKeys = revealed ? new Set() : round.hiddenKeys;
+  const embed = buildRedactedEmbed(round.entry, round.difficultyKey, hiddenKeys, round.cells);
+  const guessesField = buildGuessesField(round.correctGuessers);
+  if (guessesField) embed.addFields(guessesField);
+  if (revealed) {
+    embed.setFooter({ text: `Round over — it was ${round.correctName}!` });
+  }
+  return embed;
 }
 
 function buildButtons(roundId, choices, disabled = false) {
@@ -217,27 +250,19 @@ export const guessParseCommand = {
     .addStringOption((option) =>
       option
         .setName('difficulty')
-        .setDescription('How much info to hide — harder means fewer clues and more points')
+        .setDescription('How much info to hide — harder means fewer clues and higher base points')
         .setRequired(true)
         .addChoices(
-          { name: 'Easy (hide 1, worth 1 pt)', value: 'easy' },
-          { name: 'Medium (hide 2, worth 2 pt)', value: 'medium' },
-          { name: 'Hard (hide 3, worth 3 pt)', value: 'hard' },
+          { name: 'Easy (hide 1, base 1 pt)', value: 'easy' },
+          { name: 'Medium (hide 2, base 2 pt)', value: 'medium' },
+          { name: 'Hard (hide 3, base 3 pt)', value: 'hard' },
         ),
-    )
-    .addIntegerOption((option) =>
-      option
-        .setName('duration')
-        .setDescription(`Round length in seconds (${MIN_DURATION_SECONDS}-${MAX_DURATION_SECONDS}, default ${DEFAULT_DURATION_SECONDS})`)
-        .setMinValue(MIN_DURATION_SECONDS)
-        .setMaxValue(MAX_DURATION_SECONDS),
     ),
 
   async execute(interaction) {
     await interaction.deferReply();
 
     const difficultyKey = interaction.options.getString('difficulty', true);
-    const durationSeconds = interaction.options.getInteger('duration') ?? DEFAULT_DURATION_SECONDS;
     const config = DIFFICULTY[difficultyKey];
 
     const allCandidates = await listCompetitiveWithAccountByGuild(interaction.guildId);
@@ -271,32 +296,24 @@ export const guessParseCommand = {
       cells,
     );
 
-    const embed = buildRedactedEmbed(entry, difficultyKey, hiddenKeys, cells);
     const roundId = interaction.id; // known immediately, no need to send first to get a message id
-    const buttons = buildButtons(roundId, choices);
-
-    await interaction.editReply({ embeds: [embed], components: [buttons] });
-
-    const timeoutHandle = setTimeout(async () => {
-      if (!activeRounds.has(roundId)) return; // already resolved
-      activeRounds.delete(roundId);
-      const revealEmbed = EmbedBuilder.from(embed).setFooter({
-        text: `Time's up! It was ${answerCandidate.character_name}.`,
-      });
-      await interaction
-        .editReply({ embeds: [revealEmbed], components: [buildButtons(roundId, choices, true)] })
-        .catch(() => {});
-    }, durationSeconds * 1000);
-
-    activeRounds.set(roundId, {
+    const round = {
       correctIndex,
       correctName: answerCandidate.character_name,
       guildId: interaction.guildId,
       choices,
-      embed,
-      points: config.points,
-      timeoutHandle,
-    });
+      entry,
+      difficultyKey,
+      cells,
+      hiddenKeys,
+      basePoints: config.basePoints,
+      correctGuessers: [], // { userId, username, points }, in guess order
+    };
+    activeRounds.set(roundId, round);
+
+    const embed = buildRoundEmbed(round, false);
+    const buttons = buildButtons(roundId, choices);
+    await interaction.editReply({ embeds: [embed], components: [buttons] });
   },
 
   componentHandlers: [
@@ -312,22 +329,30 @@ export const guessParseCommand = {
           return;
         }
 
+        if (round.correctGuessers.some((g) => g.userId === interaction.user.id)) {
+          await interaction.reply({
+            content: "You've already guessed correctly this round!",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
         if (choiceIndex !== round.correctIndex) {
           await interaction.reply({ content: '❌ Not quite — try again!', flags: MessageFlags.Ephemeral });
           return;
         }
 
-        clearTimeout(round.timeoutHandle);
-        activeRounds.delete(roundId);
-        await addPoints(round.guildId, interaction.user.id, round.points);
+        const rank = round.correctGuessers.length; // 0-indexed: 0 = 1st correct guesser
+        const points = round.basePoints * RANK_MULTIPLIERS[rank];
+        await addPoints(round.guildId, interaction.user.id, points);
+        round.correctGuessers.push({ userId: interaction.user.id, username: interaction.user.username, points });
 
-        const revealEmbed = EmbedBuilder.from(round.embed).setFooter({
-          text: `🎉 ${interaction.user.username} guessed it (+${round.points} pt) — it was ${round.correctName}!`,
-        });
-        await interaction.update({
-          embeds: [revealEmbed],
-          components: [buildButtons(roundId, round.choices, true)],
-        });
+        const revealed = round.correctGuessers.length >= MAX_CORRECT_GUESSERS;
+        if (revealed) activeRounds.delete(roundId);
+
+        const embed = buildRoundEmbed(round, revealed);
+        const buttons = buildButtons(roundId, round.choices, revealed);
+        await interaction.update({ embeds: [embed], components: [buttons] });
       },
     },
   ],
