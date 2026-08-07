@@ -118,6 +118,21 @@ function applyLinkedHides(hiddenKeys, cells) {
   return hiddenKeys;
 }
 
+// Class is always redacted regardless of difficulty — a lot of characters
+// are recognizable by their main's class alone, so leaving it visible would
+// make every round too easy. It doesn't count against the difficulty's
+// hideCount budget; that budget is spent on top of this.
+const ALWAYS_HIDDEN_KEYS = new Set(['class']);
+
+/** Difficulty's hideCount random picks, drawn only from the pool minus
+ * whatever's always-hidden, then unioned with the always-hidden set and run
+ * through the linked-hide cascade. */
+function pickHiddenKeys(cells, hideCount) {
+  const pickPool = cells.filter((c) => !ALWAYS_HIDDEN_KEYS.has(c.key));
+  const randomPicks = shuffle(pickPool.map((c) => c.key)).slice(0, Math.min(hideCount, pickPool.length));
+  return applyLinkedHides(new Set([...ALWAYS_HIDDEN_KEYS, ...randomPicks]), cells);
+}
+
 // round id (the slash command interaction's own id — known immediately, no
 // need to send a message first) -> round state. Single bot process, so
 // in-memory is fine — same pattern as trackCharacter.js's pendingSelections.
@@ -291,10 +306,7 @@ export const guessParseCommand = {
 
     const role = getRole(entry);
     const cells = buildHideableCells(entry, role);
-    const hiddenKeys = applyLinkedHides(
-      new Set(shuffle(cells.map((c) => c.key)).slice(0, Math.min(config.hideCount, cells.length))),
-      cells,
-    );
+    const hiddenKeys = pickHiddenKeys(cells, config.hideCount);
 
     const roundId = interaction.id; // known immediately, no need to send first to get a message id
     const round = {
@@ -308,6 +320,7 @@ export const guessParseCommand = {
       hiddenKeys,
       basePoints: config.basePoints,
       correctGuessers: [], // { userId, username, points }, in guess order
+      attemptedUsers: new Set(), // one guess per user, right or wrong
     };
     activeRounds.set(roundId, round);
 
@@ -329,30 +342,47 @@ export const guessParseCommand = {
           return;
         }
 
-        if (round.correctGuessers.some((g) => g.userId === interaction.user.id)) {
+        // One guess per user, right or wrong — no retries. Checked and
+        // claimed synchronously (no `await` in between) so two clicks
+        // arriving back-to-back can't both slip through before either one
+        // is recorded.
+        if (round.attemptedUsers.has(interaction.user.id)) {
           await interaction.reply({
-            content: "You've already guessed correctly this round!",
+            content: "You've already used your guess for this round!",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+        round.attemptedUsers.add(interaction.user.id);
+
+        if (choiceIndex !== round.correctIndex) {
+          await interaction.reply({
+            content: '❌ Wrong — that was your one guess for this round!',
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
-        if (choiceIndex !== round.correctIndex) {
-          await interaction.reply({ content: '❌ Not quite — try again!', flags: MessageFlags.Ephemeral });
-          return;
-        }
-
+        // Reserve this guesser's rank synchronously too, before the first
+        // `await` — otherwise two correct guesses landing close together
+        // could both read the same `correctGuessers.length` and both claim
+        // the 1st-place multiplier.
         const rank = round.correctGuessers.length; // 0-indexed: 0 = 1st correct guesser
         const points = round.basePoints * RANK_MULTIPLIERS[rank];
-        await addPoints(round.guildId, interaction.user.id, points);
         round.correctGuessers.push({ userId: interaction.user.id, username: interaction.user.username, points });
-
         const revealed = round.correctGuessers.length >= MAX_CORRECT_GUESSERS;
         if (revealed) activeRounds.delete(roundId);
 
+        // Ack immediately — addPoints() below is a DB round-trip, and
+        // waiting on it before responding risks blowing the 3s interaction
+        // ack window (especially under back-to-back guesses). deferUpdate()
+        // acks instantly; editReply() afterwards has no such deadline.
+        await interaction.deferUpdate();
+        await addPoints(round.guildId, interaction.user.id, points);
+
         const embed = buildRoundEmbed(round, revealed);
         const buttons = buildButtons(roundId, round.choices, revealed);
-        await interaction.update({ embeds: [embed], components: [buttons] });
+        await interaction.editReply({ embeds: [embed], components: [buttons] });
       },
     },
   ],
