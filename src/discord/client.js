@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Collection, MessageFlags } from 'discord.js';
+import { Client, GatewayIntentBits, Collection, MessageFlags, Events } from 'discord.js';
 import { config } from '../config.js';
 import { announceChannelCommand } from './commands/announceChannel.js';
 import { checkNowCommand } from './commands/checkNow.js';
@@ -41,6 +41,14 @@ export function createDiscordClient() {
   for (const command of COMMANDS) {
     client.commands.set(command.data.name, command);
   }
+
+  // Node's EventEmitter throws (crashing the process) if an 'error' event
+  // has zero listeners — and discord.js's Client can emit one on a gateway
+  // connection problem. Without this, a transient network blip would take
+  // the whole bot down instead of just logging and letting discord.js's own
+  // reconnect logic handle it.
+  client.on(Events.Error, (err) => console.error('Discord client error:', err));
+  client.on(Events.ShardError, (err) => console.error('Discord shard error:', err));
 
   client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
