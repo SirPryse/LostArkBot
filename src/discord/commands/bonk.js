@@ -18,9 +18,8 @@ function emojiTag(classNameOrIconKey) {
 
 /** One embed field per character: class icon + name as the header, raid
  * progress as a monospace table in the value so the columns line up. */
-function buildCharacterField(characterName, entries, clearedGatesByFamily) {
-  const newest = entries[0]; // recent-first
-  const header = `${emojiTag(newest.class)} ${characterName} (iLvl: ${formatStat(newest.gearScore)})`.trim();
+function buildCharacterField(characterName, className, gearScore, clearedGatesByFamily) {
+  const header = `${emojiTag(className)} ${characterName} (iLvl: ${formatStat(gearScore)})`.trim();
 
   const rows = RAID_FAMILIES.filter((family) => clearedGatesByFamily.has(family.key)).map((family) => ({
     label: family.label,
@@ -65,7 +64,9 @@ export const bonkCommand = {
     const accessToken = decryptToken(account.access_token);
     const boundaryMs = lastWednesdayReset().getTime();
 
-    const fields = [];
+    // Gathered first, then sorted by iLvl before building fields — gearScore
+    // isn't known until the logs come back, so it can't sort while fetching.
+    const results = [];
     for (const { character_name: name, region } of characters) {
       let entries;
       try {
@@ -93,13 +94,19 @@ export const bonkCommand = {
 
       if (clearedGatesByFamily.size === 0) continue; // clears happened, but none matched a known raid family
 
-      fields.push(buildCharacterField(name, entries, clearedGatesByFamily));
+      results.push({ name, gearScore: entries[0].gearScore, class: entries[0].class, clearedGatesByFamily });
     }
 
-    if (fields.length === 0) {
+    if (results.length === 0) {
       await interaction.editReply(`${targetUser} hasn't completed any raids since this week's reset.`);
       return;
     }
+
+    results.sort((a, b) => b.gearScore - a.gearScore); // highest iLvl first
+
+    const fields = results.map((r) =>
+      buildCharacterField(r.name, r.class, r.gearScore, r.clearedGatesByFamily),
+    );
 
     const resetLabel = lastWednesdayReset().toLocaleDateString('en-US', {
       weekday: 'short',
