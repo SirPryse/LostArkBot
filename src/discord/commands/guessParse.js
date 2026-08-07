@@ -29,13 +29,18 @@ const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 const WIN_EMOJI = '<:LETHIMCOOK:1515851556266967241>';
 const SHAME_EMOJI = '<a:L_:1516097479555420202>';
 
-// No timer — a round instead stays open until 3 different people have
-// guessed correctly. Being faster/more confident is rewarded directly:
-// the 1st correct guesser gets 5x the difficulty's base points, the 2nd
-// gets 3x, the 3rd gets 1x. Once the 3rd correct guess lands, the answer
-// and every hidden field get revealed and the round closes.
+// A round stays open until 3 different people have guessed correctly.
+// Being faster/more confident is rewarded directly: the 1st correct
+// guesser gets 5x the difficulty's base points, the 2nd gets 3x, the 3rd
+// gets 1x. Once the 3rd correct guess lands, the answer and every hidden
+// field get revealed and the round closes.
 const RANK_MULTIPLIERS = [5, 3, 1];
 const MAX_CORRECT_GUESSERS = RANK_MULTIPLIERS.length;
+
+// Fallback so a round can't sit open forever if nobody (or fewer than 3
+// people) get it — fixed at 3 minutes, not user-configurable. Whichever
+// happens first (3 correct guesses, or this timer) reveals the round.
+const ROUND_DURATION_MS = 3 * 60 * 1000;
 
 // Difficulty controls how many fields below get redacted (in addition to the
 // name, which is always hidden) and the base points a correct guess is
@@ -229,7 +234,7 @@ function buildRedactedEmbed(entry, difficultyKey, hiddenKeys, cells) {
     .addFields(fields)
     .setColor(FALLBACK_COLOR)
     .setFooter({
-      text: `${config.label} (${config.basePoints} base pt) — 1st guess 5x, 2nd guess 3x, 3rd guess 1x`,
+      text: `${config.label} (${config.basePoints} base pt) — 1st guess 5x, 2nd guess 3x, 3rd guess 1x • reveals in 3 min if unsolved`,
     });
 }
 
@@ -252,10 +257,12 @@ function buildWrongGuessesField(wrongGuessers) {
   return { name: 'Wall of Shame', value: lines.join('\n') };
 }
 
-/** Rebuilds the round's embed from scratch every time someone guesses —
- * still redacted per the round's original hiddenKeys until `revealed` is
- * true, at which point every hidden field (and the answer) is shown. */
-function buildRoundEmbed(round, revealed) {
+/** Rebuilds the round's embed from scratch every time someone guesses (or
+ * the round times out) — still redacted per the round's original
+ * hiddenKeys until `revealed` is true, at which point every hidden field
+ * (and the answer) is shown. `reason` only affects the reveal footer text:
+ * 'guesses' (3rd correct guess landed) vs 'timeout' (3-minute cap hit). */
+function buildRoundEmbed(round, revealed, reason = 'guesses') {
   const hiddenKeys = revealed ? new Set() : round.hiddenKeys;
   const embed = buildRedactedEmbed(round.entry, round.difficultyKey, hiddenKeys, round.cells);
   const guessesField = buildGuessesField(round.correctGuessers);
@@ -263,7 +270,10 @@ function buildRoundEmbed(round, revealed) {
   const shameField = buildWrongGuessesField(round.wrongGuessers);
   if (shameField) embed.addFields(shameField);
   if (revealed) {
-    embed.setFooter({ text: `Round over — it was ${round.correctName}!` });
+    const text = reason === 'timeout'
+      ? `⏰ Time's up! It was ${round.correctName}!`
+      : `Round over — it was ${round.correctName}!`;
+    embed.setFooter({ text });
   }
   return embed;
 }
@@ -392,12 +402,21 @@ export const guessParseCommand = {
       correctGuessers: [], // { userId, username, points }, in guess order
       wrongGuessers: [], // { userId, username }, in guess order — the shame list
       attemptedUsers: new Set(), // one guess per user, right or wrong
+      timeoutHandle: null,
     };
     activeRounds.set(roundId, round);
 
     const embed = buildRoundEmbed(round, false);
     const buttons = buildButtons(roundId, choices);
     await interaction.editReply({ embeds: [embed], components: [buttons] });
+
+    round.timeoutHandle = setTimeout(async () => {
+      if (!activeRounds.has(roundId)) return; // already resolved via 3 correct guesses
+      activeRounds.delete(roundId);
+      const revealEmbed = buildRoundEmbed(round, true, 'timeout');
+      const revealButtons = buildButtons(roundId, round.choices, true);
+      await interaction.editReply({ embeds: [revealEmbed], components: [revealButtons] }).catch(() => {});
+    }, ROUND_DURATION_MS);
   },
 
   componentHandlers: [
@@ -462,7 +481,10 @@ export const guessParseCommand = {
           points,
         });
         const revealed = round.correctGuessers.length >= MAX_CORRECT_GUESSERS;
-        if (revealed) activeRounds.delete(roundId);
+        if (revealed) {
+          clearTimeout(round.timeoutHandle);
+          activeRounds.delete(roundId);
+        }
 
         // Ack immediately — addPoints() below is a DB round-trip, and
         // waiting on it before responding risks blowing the 3s interaction
