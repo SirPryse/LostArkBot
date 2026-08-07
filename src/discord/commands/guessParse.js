@@ -5,6 +5,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
+  escapeMarkdown,
 } from 'discord.js';
 import { listCompetitiveWithAccountByGuild } from '../../db/trackedCharacters.js';
 import { addPoints } from '../../db/guessGame.js';
@@ -380,7 +381,7 @@ export const guessParseCommand = {
     const roundId = interaction.id; // known immediately, no need to send first to get a message id
     const round = {
       correctIndex,
-      correctName: answerCandidate.character_name,
+      correctName: escapeMarkdown(answerCandidate.character_name),
       guildId: interaction.guildId,
       choices,
       entry,
@@ -426,7 +427,14 @@ export const guessParseCommand = {
         round.attemptedUsers.add(interaction.user.id);
 
         if (choiceIndex !== round.correctIndex) {
-          round.wrongGuessers.push({ userId: interaction.user.id, username: interaction.user.username });
+          // Modern Discord usernames can contain `_` and `.`, both
+          // markdown-significant — an unescaped "_shadow_" sitting next to
+          // the shame emoji would get italicized (or worse) instead of
+          // rendering literally.
+          round.wrongGuessers.push({
+            userId: interaction.user.id,
+            username: escapeMarkdown(interaction.user.username),
+          });
 
           // Same ack-first pattern as the correct-guess path below — defer
           // instantly, then the message edit (public shame list) and the
@@ -448,7 +456,11 @@ export const guessParseCommand = {
         // the 1st-place multiplier.
         const rank = round.correctGuessers.length; // 0-indexed: 0 = 1st correct guesser
         const points = round.basePoints * RANK_MULTIPLIERS[rank];
-        round.correctGuessers.push({ userId: interaction.user.id, username: interaction.user.username, points });
+        round.correctGuessers.push({
+          userId: interaction.user.id,
+          username: escapeMarkdown(interaction.user.username),
+          points,
+        });
         const revealed = round.correctGuessers.length >= MAX_CORRECT_GUESSERS;
         if (revealed) activeRounds.delete(roundId);
 

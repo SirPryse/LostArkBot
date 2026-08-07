@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, escapeMarkdown } from 'discord.js';
 import { getLeaderboard } from '../../db/guessGame.js';
 import { FALLBACK_COLOR } from '../../notify/clearMessage.js';
 
@@ -21,7 +21,10 @@ export const guessLeaderboardCommand = {
     const lines = await Promise.all(
       rows.map(async (row, i) => {
         const user = await interaction.client.users.fetch(row.discord_user_id).catch(() => null);
-        const name = user ? user.username : `Unknown user (${row.discord_user_id})`;
+        // Modern Discord usernames can contain `_`/`.`, which are
+        // markdown-significant — escape before it sits next to the bold
+        // rank marker.
+        const name = user ? escapeMarkdown(user.username) : `Unknown user (${row.discord_user_id})`;
         const rank = MEDALS[i] ?? `**${i + 1}.**`;
         return `${rank} ${name} — ${row.points} point${row.points === 1 ? '' : 's'}`;
       }),
