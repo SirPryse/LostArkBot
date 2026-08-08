@@ -112,7 +112,7 @@ function attachmentFilename(logEntry, suffix) {
  */
 function buildMemberComponentsJson(logEntry, viewMode, filename) {
   const role = getRole(logEntry);
-  const bossLabel = getFriendlyBossName(logEntry.boss);
+  const bossLabel = getFriendlyBossName(logEntry.boss, logEntry.difficulty);
   const isCompetitive = viewMode === 'competitive';
 
   const headerContent =

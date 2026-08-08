@@ -22,8 +22,42 @@ export const MIN_DPS = {
     Nightmare: 855_134_685,
   },
   'Aegir, the Oppressor': {
+    // TODO: fill in — regular Aegir Gate 2 (see raidFamilies.js) has no
+    // thresholds recorded yet, only the Extreme ones below did.
+    Normal: null,
+    Hard: null,
+    'Extreme Normal': null,
     'Extreme Hard': 411_003_443,
     'Extreme Nightmare': 737_480_604,
+  },
+  // TODO: fill in all of the below — placeholder Normal/Hard keys, adjust
+  // the KEYS too (not just the values) if a raid's real difficulty labels
+  // turn out to be different (e.g. "Level 1/2/3" like Cathedral, or a
+  // 3rd "Nightmare" tier like Serca) — these are a best guess, not
+  // confirmed against real data the way the entries above are.
+  'Akkan, Lord of Death': {
+    Normal: null,
+    Hard: null,
+  },
+  'Narok the Butcher': {
+    Normal: null,
+    Hard: null,
+  },
+  'Phantom Manifester Brelshaza': {
+    Normal: null,
+    Hard: null,
+  },
+  'Infernas': {
+    Normal: null,
+    Hard: null,
+  },
+  'Blossoming Fear, Naitreya': {
+    Normal: null,
+    Hard: null,
+  },
+  'Mordum, the Abyssal Punisher': {
+    Normal: null,
+    Hard: null,
   },
   'Abyss Lord Kazeros': {
     Normal: 99_279_498,

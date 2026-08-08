@@ -202,7 +202,7 @@ const INLINE_FIELDS = new Set(['Percentile']);
  * hidden, plus whichever of `hiddenKeys` (drawn from `cells`) get replaced
  * with a lock icon instead of their real value. */
 function buildRedactedEmbed(entry, difficultyKey, hiddenKeys, cells) {
-  const bossLabel = getFriendlyBossName(entry.boss);
+  const bossLabel = getFriendlyBossName(entry.boss, entry.difficulty);
   const config = DIFFICULTY[difficultyKey];
 
   const descriptionLines = cells

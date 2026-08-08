@@ -127,7 +127,7 @@ export const bonkHardCommand = {
 
       const clearedGatesByFamily = new Map(); // family key -> Set of gate indexes cleared
       for (const entry of entries) {
-        const match = getRaidFamilyForBoss(entry.boss);
+        const match = getRaidFamilyForBoss(entry.boss, entry.difficulty);
         if (!match) continue; // not part of a known raid family — ignore for counting
         const { family, gateIndex } = match;
         if (!clearedGatesByFamily.has(family.key)) clearedGatesByFamily.set(family.key, new Set());
