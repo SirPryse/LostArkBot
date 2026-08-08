@@ -315,26 +315,28 @@ async function pickAnswer(candidates) {
   return null;
 }
 
-async function fetchGearScore(candidate) {
-  try {
-    const accessToken = decryptToken(candidate.access_token);
-    const entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, { page: 1 });
-    return entries && entries.length > 0 ? entries[0].gearScore : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Picks 2 decoys, preferring characters in the same Gear Score bucket as
  * the answer — since the real Gear Score value stays visible whenever it
  * isn't the field a round redacted, choices spanning wildly different
  * iLvls would make the guess trivial for anyone who knows the roster.
- * Falls back to any other candidate if the bucket doesn't have enough. */
-async function pickDecoys(decoyPool, answerGearScore) {
+ * Falls back to any other candidate if the bucket doesn't have enough.
+ *
+ * No live API calls here at all: `gear_score` comes straight off the
+ * tracked_characters row `listCompetitiveWithAccountByGuild` already
+ * fetched, which the poller refreshes every 10 minutes via
+ * updateLastSeen() as a side effect of normal polling — plenty fresh for
+ * "which iLvl bucket is this in", and it means decoy selection no longer
+ * does the request-per-candidate burst that used to blow through
+ * lostark.bible's rate limit on larger rosters (confirmed live: firing the
+ * whole pool at once took 23s+ and 429'd repeatedly on a 52-character
+ * guild; reading the cached column is effectively instant). `pg` returns
+ * NUMERIC columns as strings, hence the explicit Number() conversion. */
+function pickDecoys(decoyPool, answerGearScore) {
   const answerBucket = gearScoreBucket(answerGearScore);
-  const scored = await Promise.all(
-    decoyPool.map(async (c) => ({ name: c.character_name, gearScore: await fetchGearScore(c) })),
-  );
+  const scored = decoyPool.map((c) => ({
+    name: c.character_name,
+    gearScore: c.gear_score !== null && c.gear_score !== undefined ? Number(c.gear_score) : null,
+  }));
   const sameBucket = shuffle(scored.filter((c) => c.gearScore !== null && gearScoreBucket(c.gearScore) === answerBucket));
   const rest = shuffle(scored.filter((c) => c.gearScore === null || gearScoreBucket(c.gearScore) !== answerBucket));
   return [...sameBucket, ...rest].slice(0, 2).map((c) => c.name);
@@ -380,7 +382,7 @@ export const guessParseCommand = {
 
     const { candidate: answerCandidate, entry } = picked;
     const decoyPool = distinctByName.filter((c) => c.character_name !== answerCandidate.character_name);
-    const decoys = await pickDecoys(decoyPool, entry.gearScore);
+    const decoys = pickDecoys(decoyPool, entry.gearScore);
     const choices = shuffle([answerCandidate.character_name, ...decoys]);
     const correctIndex = choices.indexOf(answerCandidate.character_name);
 

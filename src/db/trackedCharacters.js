@@ -33,6 +33,7 @@ export async function listCompetitiveWithAccountByGuild(guildId) {
       tc.id,
       tc.character_name,
       tc.region,
+      tc.gear_score,
       la.id as linked_account_id,
       la.access_token,
       la.token_expires_at,
