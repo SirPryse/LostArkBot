@@ -20,9 +20,11 @@ const KAZEROS_GATE_2 = asset('kazeros-gate2.webp');
 // art isn't currently wired to a boss name of its own.
 const ARMOCHE_GATE_1 = asset('armoche-gate1.webp');
 const ARMOCHE_GATE_2 = asset('armoche-gate2.webp');
+const MORDUM_GATE_1 = asset('mordum-gate1.webp');
+const MORDUM_GATE_2 = asset('mordum-gate2.webp');
+const MORDUM_GATE_3 = asset('mordum-gate3.webp');
 // Sitting in assets/bosses/ but not yet wired to a boss name below:
-// mordum-gate1/2/3.webp (not Kazeros/Armoche's art, unclear what they are),
-// armoche-gate1.webp (Armoche's other gate), echidna.webp.
+// echidna.webp (not a currently-tracked raid).
 
 /**
  * Boss name -> banner image file. Drop a real image into assets/bosses/ and
@@ -30,14 +32,28 @@ const ARMOCHE_GATE_2 = asset('armoche-gate2.webp');
  */
 const BOSS_IMAGES = {
   'Aegir, the Oppressor': AEGIR,
+  // Maxroll doesn't have gate-specific art for this raid — both the
+  // "Aegir Gate 1" (Akkan) and "Aegir Gate 2" (Aegir) guide pages use the
+  // identical banner, confirmed by comparing the downloaded images pixel
+  // for pixel.
+  'Akkan, Lord of Death': AEGIR,
   'Death Incarnate Kazeros': KAZEROS_GATE_2,
+  'Archdemon Kazeros': KAZEROS_GATE_2,
   'Abyss Lord Kazeros': KAZEROS_GATE_1,
   'Armoche, Sentinel of the Abyss': ARMOCHE_GATE_2,
   'Brelshaza, Ember in the Ashes': ARMOCHE_GATE_1,
   'Corvus Tul Rak': SERCA,
   'Witch of Agony, Serca': SERCA,
   'Arcenos, Vanguard of Fanaticism': CATHEDRAL,
-  'Archbishop Arcenos': CATHEDRAL
+  'Archbishop Arcenos': CATHEDRAL,
+  // The *other* Brelshaza raid (Narok the Butcher / Phantom Manifester
+  // Brelshaza, see raidFamilies.js) — not the same raid as "Brelshaza,
+  // Ember in the Ashes" above, just a reused in-game name.
+  'Narok the Butcher': BRELSHAZA,
+  'Phantom Manifester Brelshaza': BRELSHAZA,
+  'Infernas': MORDUM_GATE_1,
+  'Blossoming Fear, Naitreya': MORDUM_GATE_2,
+  'Mordum, the Abyssal Punisher': MORDUM_GATE_3,
 };
 
 export function getBossImagePath(bossName) {
