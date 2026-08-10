@@ -17,9 +17,22 @@ import { getFriendlyBossName } from '../../notify/raidFamilies.js';
 import { tierForFraction } from '../../notify/percentileTiers.js';
 
 const PICK_PREFIX = 'guess-parse-pick:';
-const MAX_ANSWER_ATTEMPTS = 5; // some tracked characters may have no logs yet
-const MIN_LOG_PAGE = 1;
-const MAX_LOG_PAGE = 10; // pull from a random page, not always the most recent clear
+// Caps *rounds*, not total live lookups — every account gets tried once
+// before anyone gets tried a 2nd time, so a flat attempt cap could bail out
+// mid-round and never even reach some accounts (some tracked characters
+// have no logs yet, so a bad early draw can burn through a flat budget
+// fast). 3 rounds means every account gets up to 3 different random
+// characters tried before the search gives up.
+const MAX_ANSWER_ROUNDS = 3;
+// A worst-case search (everyone dead, all rounds) now makes far more live
+// lookups than the old flat 5-attempt cap ever could — pace them like
+// bonk.js/poller.js do, so a bad-luck /guess-parse doesn't burst-fire
+// lostark.bible's rate limit.
+const ANSWER_ATTEMPT_DELAY_MS = 150;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 
 // Auroral Teahouse's own custom emoji — usable in message text regardless
@@ -259,18 +272,21 @@ function buildWrongGuessesField(wrongGuessers) {
 
 /** Rebuilds the round's embed from scratch every time someone guesses (or
  * the round times out) — still redacted per the round's original
- * hiddenKeys until `revealed` is true, at which point every hidden field
- * (and the answer) is shown. `reason` only affects the reveal footer text:
- * 'guesses' (3rd correct guess landed) vs 'timeout' (3-minute cap hit). */
-function buildRoundEmbed(round, revealed, reason = 'guesses') {
-  const hiddenKeys = revealed ? new Set() : round.hiddenKeys;
+ * hiddenKeys until round.revealed is true, at which point every hidden
+ * field (and the answer) is shown. Reads round.revealed/round.revealReason
+ * directly rather than taking them as parameters, so every call site is
+ * guaranteed to reflect the round's *actual current* state — no risk of a
+ * caller building from a `revealed` snapshot that's gone stale because
+ * someone else's concurrent guess revealed the round in the meantime. */
+function buildRoundEmbed(round) {
+  const hiddenKeys = round.revealed ? new Set() : round.hiddenKeys;
   const embed = buildRedactedEmbed(round.entry, round.difficultyKey, hiddenKeys, round.cells);
   const guessesField = buildGuessesField(round.correctGuessers);
   if (guessesField) embed.addFields(guessesField);
   const shameField = buildWrongGuessesField(round.wrongGuessers);
   if (shameField) embed.addFields(shameField);
-  if (revealed) {
-    const text = reason === 'timeout'
+  if (round.revealed) {
+    const text = round.revealReason === 'timeout'
       ? `⏰ Time's up! It was ${round.correctName}!`
       : `Round over — it was ${round.correctName}!`;
     embed.setFooter({ text });
@@ -290,26 +306,82 @@ function buildButtons(roundId, choices, disabled = false) {
   );
 }
 
+/** Serializes every editReply() call for a round through one promise chain
+ * per round, so concurrent guesses (several people clicking within the
+ * same instant) can never land out of order. Without this, each click's
+ * own editReply() was an independent, unordered network call — if a wrong
+ * guess's edit (built with the round still hidden) happened to *complete*
+ * after the 3rd-correct-guess's reveal edit, it would silently overwrite
+ * the message back to its hidden state.
+ *
+ * `buildPayload` is called lazily, right as this edit's turn in the queue
+ * comes up — not eagerly at the call site — so it always reads the round's
+ * state at actual send time. Combined with buildRoundEmbed() reading
+ * round.revealed directly instead of a parameter, this guarantees whichever
+ * edit ends up executing *last* in the queue reflects the round's true
+ * final state, regardless of how the underlying network calls interleave. */
+function queueRoundEdit(round, interaction, buildPayload) {
+  round.editQueue = (round.editQueue ?? Promise.resolve())
+    .catch(() => {}) // an earlier queued edit's failure shouldn't block this one
+    .then(() => interaction.editReply(buildPayload()))
+    .catch((err) => {
+      console.error('guess-parse: failed to apply a queued round edit:', err);
+    });
+  return round.editQueue;
+}
+
+async function tryCandidate(candidate) {
+  try {
+    const accessToken = decryptToken(candidate.access_token);
+    // Requesting a different `page` used to be how this picked a random
+    // clear instead of always the most recent one — turns out lostark.bible
+    // doesn't actually paginate this endpoint (confirmed live: page 1, 2, 5,
+    // 9 all return the identical ~25 most-recent entries, every time, for
+    // every character checked). So `page` is fixed at 1 (the only page that
+    // exists in practice) and the variety instead comes from picking
+    // randomly *within* the entries it returns — otherwise entries[0] would
+    // deterministically be the same single clear on every single pick.
+    const entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, { page: 1 });
+    if (entries && entries.length > 0) {
+      const entry = entries[randomInt(0, entries.length - 1)];
+      return { candidate, entry };
+    }
+  } catch {
+    // token expired, missing scope, etc. — caller tries someone else
+  }
+  return null;
+}
+
+/** Picks the round's answer by user first, character second — a linked
+ * account with a dozen tracked alts used to dominate the answer pool simply
+ * by having more entries in the flat character list; grouping by account
+ * first gives every player an equal shot at being featured, regardless of
+ * roster size.
+ *
+ * Attempts proceed in "rounds": round 0 tries one random character from
+ * every account (in shuffled account order), round 1 tries each account's
+ * next random character, and so on — so a retry only reaches into the same
+ * account a second time after every other account has already had a turn.
+ * Capped at MAX_ANSWER_ROUNDS full passes, not a flat total-call budget —
+ * that guarantees every account gets tried at least once before the search
+ * gives up, instead of an unlucky draw on the first few accounts silently
+ * exhausting the budget before the rest are ever reached. */
 async function pickAnswer(candidates) {
-  const shuffled = shuffle(candidates);
-  for (const candidate of shuffled.slice(0, MAX_ANSWER_ATTEMPTS)) {
-    try {
-      const accessToken = decryptToken(candidate.access_token);
-      // Random page so the round isn't always this character's most recent
-      // clear — makes the round less guessable from "what did X do today".
-      const page = randomInt(MIN_LOG_PAGE, MAX_LOG_PAGE);
-      let entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, { page });
-      if (!entries || entries.length === 0) {
-        // That page might just be past the end of this character's history
-        // — fall back to page 1 (guaranteed to have data if they have any
-        // logs at all) instead of burning an attempt on a real candidate.
-        entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, { page: 1 });
-      }
-      if (entries && entries.length > 0) {
-        return { candidate, entry: entries[0] };
-      }
-    } catch {
-      // token expired, missing scope, etc. — just try the next candidate
+  const byAccount = new Map();
+  for (const candidate of candidates) {
+    if (!byAccount.has(candidate.linked_account_id)) byAccount.set(candidate.linked_account_id, []);
+    byAccount.get(candidate.linked_account_id).push(candidate);
+  }
+  const accountQueues = shuffle([...byAccount.values()]).map((chars) => shuffle(chars));
+
+  for (let roundIndex = 0; roundIndex < MAX_ANSWER_ROUNDS; roundIndex++) {
+    if (!accountQueues.some((q) => q.length > roundIndex)) break; // every account's roster exhausted
+    for (const queue of accountQueues) {
+      const candidate = queue[roundIndex];
+      if (!candidate) continue; // this account has fewer than roundIndex + 1 characters
+      const result = await tryCandidate(candidate);
+      if (result) return result;
+      await sleep(ANSWER_ATTEMPT_DELAY_MS);
     }
   }
   return null;
@@ -405,19 +477,26 @@ export const guessParseCommand = {
       wrongGuessers: [], // { userId, username }, in guess order — the shame list
       attemptedUsers: new Set(), // one guess per user, right or wrong
       timeoutHandle: null,
+      revealed: false,
+      revealReason: null, // 'guesses' | 'timeout', set once revealed becomes true
+      editQueue: null, // see queueRoundEdit()
     };
     activeRounds.set(roundId, round);
 
-    const embed = buildRoundEmbed(round, false);
-    const buttons = buildButtons(roundId, choices);
-    await interaction.editReply({ embeds: [embed], components: [buttons] });
+    await queueRoundEdit(round, interaction, () => ({
+      embeds: [buildRoundEmbed(round)],
+      components: [buildButtons(roundId, round.choices, round.revealed)],
+    }));
 
     round.timeoutHandle = setTimeout(async () => {
       if (!activeRounds.has(roundId)) return; // already resolved via 3 correct guesses
       activeRounds.delete(roundId);
-      const revealEmbed = buildRoundEmbed(round, true, 'timeout');
-      const revealButtons = buildButtons(roundId, round.choices, true);
-      await interaction.editReply({ embeds: [revealEmbed], components: [revealButtons] }).catch(() => {});
+      round.revealed = true;
+      round.revealReason = 'timeout';
+      await queueRoundEdit(round, interaction, () => ({
+        embeds: [buildRoundEmbed(round)],
+        components: [buildButtons(roundId, round.choices, round.revealed)],
+      }));
     }, ROUND_DURATION_MS);
   },
 
@@ -461,9 +540,10 @@ export const guessParseCommand = {
           // instantly, then the message edit (public shame list) and the
           // personal ephemeral note both happen after, with no 3s deadline.
           await interaction.deferUpdate();
-          const embed = buildRoundEmbed(round, false);
-          const buttons = buildButtons(roundId, round.choices, false);
-          await interaction.editReply({ embeds: [embed], components: [buttons] });
+          await queueRoundEdit(round, interaction, () => ({
+            embeds: [buildRoundEmbed(round)],
+            components: [buildButtons(roundId, round.choices, round.revealed)],
+          }));
           await interaction.followUp({
             content: '❌ Wrong — that was your one guess for this round!',
             flags: MessageFlags.Ephemeral,
@@ -482,8 +562,9 @@ export const guessParseCommand = {
           username: escapeMarkdown(interaction.user.username),
           points,
         });
-        const revealed = round.correctGuessers.length >= MAX_CORRECT_GUESSERS;
-        if (revealed) {
+        if (round.correctGuessers.length >= MAX_CORRECT_GUESSERS) {
+          round.revealed = true;
+          round.revealReason = 'guesses';
           clearTimeout(round.timeoutHandle);
           activeRounds.delete(roundId);
         }
@@ -495,9 +576,10 @@ export const guessParseCommand = {
         await interaction.deferUpdate();
         await addPoints(round.guildId, interaction.user.id, points);
 
-        const embed = buildRoundEmbed(round, revealed);
-        const buttons = buildButtons(roundId, round.choices, revealed);
-        await interaction.editReply({ embeds: [embed], components: [buttons] });
+        await queueRoundEdit(round, interaction, () => ({
+          embeds: [buildRoundEmbed(round)],
+          components: [buildButtons(roundId, round.choices, round.revealed)],
+        }));
       },
     },
   ],
