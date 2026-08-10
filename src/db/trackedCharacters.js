@@ -83,6 +83,30 @@ export async function listByGuild(guildId) {
   return rows;
 }
 
+/** Count of tracked_characters rows for a guild, regardless of which linked
+ * account owns them or whether they're enabled — used by /untrack-all and
+ * /leave-server to show what a wipe is about to remove before confirming. */
+export async function countByGuild(guildId) {
+  const { rows } = await pool.query(
+    'select count(*)::int as count from tracked_characters where guild_id = $1',
+    [guildId],
+  );
+  return rows[0].count;
+}
+
+/** Deletes every tracked_characters row for a guild, regardless of owner —
+ * an admin-level wipe, unlike remove() which is ownership-scoped to a
+ * single linked account. Used by /untrack-all directly, and by
+ * /leave-server to clear everything before the bot actually departs.
+ * Returns the number of rows removed. */
+export async function removeAllByGuild(guildId) {
+  const { rows } = await pool.query(
+    'delete from tracked_characters where guild_id = $1 returning id',
+    [guildId],
+  );
+  return rows.length;
+}
+
 /** Distinct characters an account tracks, deduped across guilds — the same
  * Lost Ark character can be tracked in multiple servers for announcements,
  * but a roster-wide check like /roster-status only needs it once. */
