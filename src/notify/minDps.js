@@ -22,42 +22,38 @@ export const MIN_DPS = {
     Nightmare: 855_134_685,
   },
   'Aegir, the Oppressor': {
-    // TODO: fill in — regular Aegir Gate 2 (see raidFamilies.js) has no
-    // thresholds recorded yet, only the Extreme ones below did.
-    Normal: null,
-    Hard: null,
+    // 'Extreme Normal' has no recorded average yet — leave it null (not a
+    // guess) until one's available, same convention as everywhere else in
+    // this file.
+    Normal: 29_689_773,
+    Hard: 47_213_994,
     'Extreme Normal': null,
     'Extreme Hard': 411_003_443,
     'Extreme Nightmare': 737_480_604,
   },
-  // TODO: fill in all of the below — placeholder Normal/Hard keys, adjust
-  // the KEYS too (not just the values) if a raid's real difficulty labels
-  // turn out to be different (e.g. "Level 1/2/3" like Cathedral, or a
-  // 3rd "Nightmare" tier like Serca) — these are a best guess, not
-  // confirmed against real data the way the entries above are.
   'Akkan, Lord of Death': {
-    Normal: null,
-    Hard: null,
+    Normal: 28_486_222,
+    Hard: 45_433_438,
   },
   'Narok the Butcher': {
-    Normal: null,
-    Hard: null,
+    Normal: 47_914_216,
+    Hard: 104_390_704,
   },
   'Phantom Manifester Brelshaza': {
-    Normal: null,
-    Hard: null,
+    Normal: 49_308_883,
+    Hard: 96_076_142,
   },
   'Infernas': {
-    Normal: null,
-    Hard: null,
+    Normal: 58_535_550,
+    Hard: 88_144_414,
   },
   'Blossoming Fear, Naitreya': {
-    Normal: null,
-    Hard: null,
+    Normal: 53_125_651,
+    Hard: 94_825_271,
   },
   'Mordum, the Abyssal Punisher': {
-    Normal: null,
-    Hard: null,
+    Normal: 81_330_595,
+    Hard: 147_709_013,
   },
   'Abyss Lord Kazeros': {
     Normal: 99_279_498,
