@@ -28,6 +28,10 @@ export const RAID_FAMILIES = [
   {
     key: 'aegir-extreme',
     label: 'Aegir Extreme',
+    // Extreme raids aren't gated the way regular raids are — just one
+    // encounter, not a numbered sequence — so the friendly name is just
+    // the label with no "Gate N" suffix. See getFriendlyBossName().
+    hideGateNumber: true,
     // Same boss name as regular Aegir Gate 2 below, but a separate weekly
     // clear — see the file-level comment on why this needs the
     // difficulty-restricted alias form instead of a plain string.
@@ -74,15 +78,13 @@ export const RAID_FAMILIES = [
   {
     key: 'aegir',
     label: 'Aegir',
-    // Gate 1 (Akkan, Lord of Death) isn't part of the current limited-time
-    // event window — only gate 2 is clearable right now. Historical clears
-    // of Akkan still exist from before the event restructuring, but
-    // counting it as a 2nd gate here would make every weekly report show a
-    // misleading "1/2" for a gate nobody can currently clear. When Akkan
-    // comes back, PREPEND `['Akkan, Lord of Death']` as the new first gate
-    // — that bumps this entry to "Gate 2" automatically, matching its real
-    // in-game gate number, without needing to renumber anything by hand.
+    // Akkan is back as Gate 1 for Normal/Hard (2/2 total) — this used to be
+    // just Gate 2 while Akkan was excluded from a limited-time event
+    // window; see git history for that state if it ever needs restoring.
+    // Extreme Aegir (separate family above) is unaffected — it's still
+    // just the one encounter, no Akkan equivalent there.
     gates: [
+      ['Akkan, Lord of Death'],
       [{ name: 'Aegir, the Oppressor', difficulties: ['Normal', 'Hard'] }],
     ],
   },
@@ -102,6 +104,15 @@ for (const family of RAID_FAMILIES) {
   });
 }
 
+// Every known raid boss name, flattened across every gate of every family —
+// the `bosses` filter to pass to getCharacterLogs(). Confirmed live:
+// lostark.bible's /api/oauth/logs/{name} pagination silently no-ops
+// without a `bosses` filter (every page returns the same most-recent-25
+// window regardless of `page`), but paginates correctly *with* one — so
+// any caller that wants real history beyond the most recent 25 entries
+// needs to pass this.
+export const ALL_KNOWN_BOSSES = [...CANDIDATES_BY_BOSS.keys()];
+
 /**
  * Which raid family (and which of its gates) a boss name belongs to.
  * `difficulty` is required to disambiguate the rare case of a boss name
@@ -118,8 +129,12 @@ export function getRaidFamilyForBoss(bossName, difficulty) {
 
 /** Friendlier "{Raid} Gate {N}" label for a boss name (e.g. "Archbishop
  * Arcenos" -> "Cathedral Gate 1") — falls back to the raw boss name for
- * anything not in a known family. */
+ * anything not in a known family. Families marked `hideGateNumber` (e.g.
+ * Extreme raids, which aren't a numbered gate sequence) just get the
+ * label with no "Gate N" suffix. */
 export function getFriendlyBossName(bossName, difficulty) {
   const match = getRaidFamilyForBoss(bossName, difficulty);
-  return match ? `${match.family.label} Gate ${match.gateIndex + 1}` : bossName;
+  if (!match) return bossName;
+  if (match.family.hideGateNumber) return match.family.label;
+  return `${match.family.label} Gate ${match.gateIndex + 1}`;
 }

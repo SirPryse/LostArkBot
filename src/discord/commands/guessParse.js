@@ -13,7 +13,7 @@ import { decryptToken } from '../../crypto/tokenCipher.js';
 import { getCharacterLogs } from '../../lostarkbible/client.js';
 import { getRole, formatStat, FALLBACK_COLOR } from '../../notify/clearMessage.js';
 import { getMinDps } from '../../notify/minDps.js';
-import { getFriendlyBossName } from '../../notify/raidFamilies.js';
+import { getFriendlyBossName, ALL_KNOWN_BOSSES } from '../../notify/raidFamilies.js';
 import { tierForFraction } from '../../notify/percentileTiers.js';
 import { sleep } from '../../utils/sleep.js';
 
@@ -30,6 +30,11 @@ const MAX_ANSWER_ROUNDS = 3;
 // bonk.js/poller.js do, so a bad-luck /guess-parse doesn't burst-fire
 // lostark.bible's rate limit.
 const ANSWER_ATTEMPT_DELAY_MS = 150;
+// Now that ALL_KNOWN_BOSSES unlocks real pagination (see tryCandidate),
+// a random page in this range reaches genuinely deep history instead of
+// re-reading the same most-recent window every time.
+const MIN_LOG_PAGE = 1;
+const MAX_LOG_PAGE = 10;
 const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 
 // Auroral Teahouse's own custom emoji — usable in message text regardless
@@ -330,15 +335,26 @@ function queueRoundEdit(round, interaction, buildPayload) {
 async function tryCandidate(candidate) {
   try {
     const accessToken = decryptToken(candidate.access_token);
-    // Requesting a different `page` used to be how this picked a random
-    // clear instead of always the most recent one — turns out lostark.bible
-    // doesn't actually paginate this endpoint (confirmed live: page 1, 2, 5,
-    // 9 all return the identical ~25 most-recent entries, every time, for
-    // every character checked). So `page` is fixed at 1 (the only page that
-    // exists in practice) and the variety instead comes from picking
-    // randomly *within* the entries it returns — otherwise entries[0] would
-    // deterministically be the same single clear on every single pick.
-    const entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, { page: 1 });
+    // lostark.bible's pagination silently no-ops without a `bosses` filter
+    // (every page returns the identical most-recent-25 window, confirmed
+    // live) — but paginates correctly *with* one. ALL_KNOWN_BOSSES unlocks
+    // real history beyond the most recent page, and picking randomly
+    // *within* whatever page comes back adds a second layer of variety on
+    // top of the random page itself.
+    const page = randomInt(MIN_LOG_PAGE, MAX_LOG_PAGE);
+    let entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, {
+      page,
+      bosses: ALL_KNOWN_BOSSES,
+    });
+    if (!entries || entries.length === 0) {
+      // That page might be past the end of this character's filtered
+      // history — fall back to page 1 (guaranteed to have data if they
+      // have any matching logs at all) instead of burning an attempt.
+      entries = await getCharacterLogs(accessToken, candidate.character_name, candidate.region, {
+        page: 1,
+        bosses: ALL_KNOWN_BOSSES,
+      });
+    }
     if (entries && entries.length > 0) {
       const entry = entries[randomInt(0, entries.length - 1)];
       return { candidate, entry };
