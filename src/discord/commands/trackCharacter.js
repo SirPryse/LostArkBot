@@ -14,7 +14,6 @@ import { TokenExpiredError, InsufficientScopeError } from '../../lostarkbible/er
 import { getDisplayNameForIconKey, getClassEmoji } from '../../notify/classIcons.js';
 import { formatStat } from '../../notify/clearMessage.js';
 
-const APP_PAGE_URL = 'https://lost-ark-app-page.vercel.app';
 const SELECT_PREFIX = 'track-character-select:';
 const VIEW_PREFIX = 'track-character-view:';
 const MAX_OPTIONS = 25; // Discord select menu limit
@@ -43,13 +42,13 @@ export const trackCharacterCommand = {
     const account = await getByDiscordUserId(interaction.user.id);
     if (!account) {
       await interaction.editReply(
-        `You haven't linked a lostark.bible account yet. Link one first at ${APP_PAGE_URL}, then run this again.`,
+        "You haven't linked a lostark.bible account yet. Run `/link-account` first, then run this again.",
       );
       return;
     }
     if (account.status !== 'active' || new Date(account.token_expires_at) <= new Date()) {
       await interaction.editReply(
-        `Your lostark.bible link needs to be re-authorized. Visit ${APP_PAGE_URL} to relink.`,
+        'Your lostark.bible link needs to be re-authorized. Run `/link-account` again to relink.',
       );
       return;
     }
@@ -61,7 +60,7 @@ export const trackCharacterCommand = {
     } catch (err) {
       if (err instanceof TokenExpiredError || err instanceof InsufficientScopeError) {
         await interaction.editReply(
-          `Your lostark.bible link needs to be re-authorized. Visit ${APP_PAGE_URL} to relink.`,
+          'Your lostark.bible link needs to be re-authorized. Run `/link-account` again to relink.',
         );
         return;
       }

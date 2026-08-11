@@ -1,9 +1,17 @@
 # Shared database contract
 
-This repo (the bot + scheduler) owns the Postgres schema and migrations. The
-**app page** (separate repo, runs the lostark.bible OAuth2+PKCE flow) is expected
-to write to `linked_accounts` and `tracked_characters` directly. If either side
-changes shape, both repos need updating together.
+This repo (the bot + scheduler) owns the Postgres schema and migrations, and
+now also owns the lostark.bible OAuth2+PKCE flow itself — `/link-account`
+(`src/discord/commands/linkAccount.js`) starts it, and a small HTTP server
+folded into this same process (`src/web/server.js`, just the one
+`/oauth/callback` route) completes it. There's no separate "app page"
+project anymore — Discord bots can't receive a third-party OAuth redirect
+themselves (they only make outbound connections), so *some* real HTTP
+endpoint was unavoidable, but it didn't need to be a whole separate
+project/deployment; this is the minimal version of that, living in the
+bot's own Fly.io deployment. **RaidPlanner** (a different project) shares
+the same lostark.bible OAuth app/client_id but is otherwise unrelated —
+doesn't read or write anything in this database.
 
 ## `linked_accounts`
 
@@ -12,23 +20,21 @@ One row per Discord user who has authorized lostark.bible access.
 | column                 | notes                                                                 |
 |------------------------|------------------------------------------------------------------------|
 | `discord_user_id`      | Discord snowflake, unique                                              |
-| `lostarkbible_user_id` | from `GET /api/oauth/user`                                             |
+| `lostarkbible_user_id` | from `GET /api/oauth/user`'s `id` field (that endpoint also returns `discordId`, used to match the row) |
 | `access_token`         | **must be encrypted** before insert — see `src/crypto/tokenCipher.js`  |
 | `token_expires_at`     | `now() + expires_in` from the token response (currently 90 days)       |
 | `scopes`               | space-separated, as returned by the token endpoint                    |
-| `status`               | `active` \| `needs_reauth` \| `revoked` — the bot flips this, the app page should read it to prompt re-auth |
+| `status`               | `active` \| `needs_reauth` \| `revoked` — the bot flips to `needs_reauth` on an expired token or a 401 from the API, and back to `active` itself once `/link-account` is re-run |
 
-lostark.bible tokens have **no refresh token**. When the bot marks a row
-`needs_reauth` (expired token, or a 401 from the API), the app page is
-responsible for re-running the OAuth flow and updating `access_token` /
-`token_expires_at` / `status` back to `active`.
+lostark.bible tokens have **no refresh token**. Re-running `/link-account`
+is the only way to refresh one — `upsertLinkedAccount` (`src/db/linkedAccounts.js`)
+overwrites the token/expiry/scopes and flips `status` back to `active`.
 
 ## `tracked_characters`
 
-One row per character being watched. Written by either side: the app page's
-dashboard used to write this (now read-only there), and the bot's own
-`/track-character` / `/untrack-character` commands write it directly now —
-both just need the shared `linked_account_id`.
+One row per character being watched. Written entirely by this bot's own
+`/track-character` / `/untrack-character` commands — both just need the
+shared `linked_account_id`.
 
 | column              | notes                                                          |
 |---------------------|-----------------------------------------------------------------|

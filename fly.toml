@@ -6,3 +6,15 @@ primary_region = "fra"
 [[vm]]
   size = "shared-cpu-1x"
   memory = "256mb"
+
+# Only for the OAuth callback route (src/web/server.js) — the bot itself
+# doesn't serve any other traffic, it only makes outbound connections
+# (Discord gateway, lostark.bible, Postgres). Machine must stay running
+# regardless of HTTP traffic (the Discord gateway connection + poller need
+# to run 24/7 either way), hence no auto-stop.
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1

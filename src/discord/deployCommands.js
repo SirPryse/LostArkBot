@@ -15,12 +15,14 @@ import { guessParseCommand } from './commands/guessParse.js';
 import { guessLeaderboardCommand } from './commands/guessLeaderboard.js';
 import { untrackAllCommand } from './commands/untrackAll.js';
 import { leaveServerCommand } from './commands/leaveServer.js';
+import { linkAccountCommand } from './commands/linkAccount.js';
 
 const commands = [
   announceChannelCommand,
   checkNowCommand,
   recentRaidsCommand,
   registeredUsersCommand,
+  linkAccountCommand,
   trackCharacterCommand,
   untrackCharacterCommand,
   characterPageCommand,

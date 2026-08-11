@@ -2,6 +2,7 @@ import { Events } from 'discord.js';
 import { createDiscordClient, loginDiscordClient } from './discord/client.js';
 import { startPolling } from './scheduler/poller.js';
 import { startWeeklyResetSchedule } from './scheduler/weeklyReset.js';
+import { startOAuthServer } from './web/server.js';
 import { config } from './config.js';
 import { pool } from './db/pool.js';
 
@@ -23,6 +24,11 @@ process.on('uncaughtException', (err) => {
 
 const client = createDiscordClient();
 
+// Independent of the Discord gateway entirely — only touches lostark.bible
+// and Postgres, so it starts (and keeps working) regardless of Discord
+// connection state.
+const oauthServer = startOAuthServer();
+
 client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user.tag}`);
 
@@ -39,6 +45,7 @@ client.once(Events.ClientReady, () => {
 async function shutdown(signal) {
   console.log(`Received ${signal}, shutting down...`);
   await client.destroy();
+  await new Promise((resolve) => oauthServer.close(resolve));
   await pool.end();
   process.exit(0);
 }
