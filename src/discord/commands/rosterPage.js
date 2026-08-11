@@ -8,18 +8,34 @@ import {
 } from 'discord.js';
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
 import { getAggregateStats } from '../../db/clearHistory.js';
+import { getBadgeCounts } from '../../db/guessLeaderboardBadges.js';
 import { TIERS } from '../../notify/percentileTiers.js';
 import { FALLBACK_COLOR } from '../../notify/clearMessage.js';
 
 const VISIBILITY_PREFIX = 'roster-page-vis:';
+const WEEKLY_RANK_MEDALS = [
+  { rank: 1, emoji: '🥇' },
+  { rank: 2, emoji: '🥈' },
+  { rank: 3, emoji: '🥉' },
+];
 
 /** One tier per line so the badge counts are actually readable. */
 function badgeLines(counts) {
   return TIERS.map((t) => `${t.emoji} **${counts[t.key]}**`).join('\n');
 }
 
-async function buildRosterPageEmbed(linkedAccountId, guildId, user) {
-  const { total, diedCount, tierCounts } = await getAggregateStats(linkedAccountId, guildId, TIERS);
+/** Weekly guess-parse leaderboard placements — deliberately its own field,
+ * not merged into the percentile-tier Badges above (different game,
+ * different achievement). See guessLeaderboardBadges.js. */
+function weeklyBadgeLines(counts) {
+  return WEEKLY_RANK_MEDALS.map((m) => `${m.emoji} **${counts[m.rank]}**`).join('\n');
+}
+
+async function buildRosterPageEmbed(linkedAccountId, discordUserId, guildId, user) {
+  const [{ total, diedCount, tierCounts }, weeklyBadgeCounts] = await Promise.all([
+    getAggregateStats(linkedAccountId, guildId, TIERS),
+    getBadgeCounts(guildId, discordUserId),
+  ]);
 
   return {
     embeds: [
@@ -29,7 +45,10 @@ async function buildRosterPageEmbed(linkedAccountId, guildId, user) {
         .setDescription(
           `Total gates cleared: **${total}**\n` + `Died in **${diedCount}** raid${diedCount === 1 ? '' : 's'}`,
         )
-        .addFields({ name: 'Badges', value: badgeLines(tierCounts), inline: false })
+        .addFields(
+          { name: 'Badges', value: badgeLines(tierCounts), inline: true },
+          { name: '🏆 Weekly Champion Badges', value: weeklyBadgeLines(weeklyBadgeCounts), inline: true },
+        )
         .setColor(FALLBACK_COLOR),
     ],
   };
@@ -80,7 +99,7 @@ export const rosterPageCommand = {
           return;
         }
 
-        const payload = await buildRosterPageEmbed(account.id, interaction.guildId, interaction.user);
+        const payload = await buildRosterPageEmbed(account.id, interaction.user.id, interaction.guildId, interaction.user);
 
         await interaction.update({ content: 'Here you go!', components: [] });
         await interaction.followUp({

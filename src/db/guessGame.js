@@ -21,3 +21,10 @@ export async function getLeaderboard(guildId, limit = 10) {
   );
   return rows;
 }
+
+/** Wipes the whole leaderboard for a guild — called at the weekly reset,
+ * after the top 3 have already been read out for badge-awarding and the
+ * announcement embed. */
+export async function resetLeaderboard(guildId) {
+  await pool.query('delete from guess_game_scores where guild_id = $1', [guildId]);
+}

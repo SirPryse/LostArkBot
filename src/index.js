@@ -1,6 +1,7 @@
 import { Events } from 'discord.js';
 import { createDiscordClient, loginDiscordClient } from './discord/client.js';
 import { startPolling } from './scheduler/poller.js';
+import { startWeeklyResetSchedule } from './scheduler/weeklyReset.js';
 import { config } from './config.js';
 import { pool } from './db/pool.js';
 
@@ -27,6 +28,8 @@ client.once(Events.ClientReady, () => {
 
   startPolling(client);
   console.log(`Polling every ${config.pollIntervalMinutes} minute(s).`);
+
+  startWeeklyResetSchedule(client);
 });
 
 // Every Fly deploy sends SIGTERM to the old machine before killing it —
