@@ -44,8 +44,17 @@ function formatDuration(ms) {
   return `${minutes}m ${seconds}s`;
 }
 
-/** 2-decimal float, with M/B suffix for large stats (damage-scale numbers). */
+/** 2-decimal float, with M/B suffix for large stats (damage-scale numbers).
+ * Null-safe: confirmed live that older lostark.bible log entries (roughly
+ * a year+ old, reached now that pagination actually works — see
+ * raidFamilies.js's ALL_KNOWN_BOSSES) can be missing fields entries from
+ * today always have (e.g. udps/bdps, or even rdps/rContribution on any
+ * entry). Every stat field in guessParse.js and clearMessage.js runs its
+ * raw value through this, so crashing on a missing one would take down
+ * /guess-parse round-building and real clear announcements alike — matches
+ * formatPercent/formatPercentile's existing null handling below. */
 export function formatStat(n) {
+  if (n === null || n === undefined) return 'N/A';
   const abs = Math.abs(n);
   if (abs >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`;

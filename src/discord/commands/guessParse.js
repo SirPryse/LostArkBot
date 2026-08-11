@@ -122,9 +122,22 @@ const DPS_STAT_FIELDS = [
 /** Builds the pool of hideable "cells" for this specific entry — identifying
  * fields plus whichever role's stat fields apply, skipping any stat cell
  * that doesn't apply to this particular entry (e.g. no Min. DPS defined for
- * this boss/difficulty). */
+ * this boss/difficulty).
+ *
+ * `role === 'unknown'` falls back to DPS_STAT_FIELDS rather than an empty
+ * pool. Confirmed live: getRole() returns 'unknown' for older log entries
+ * (reached now that pagination actually works) that predate lostark.bible
+ * tagging entries with `udps`/`bdps` — those entries still have a plain
+ * `dps` value, just no way to tell support from dps by key presence alone.
+ * SUPPORT_STAT_FIELDS isn't a safer guess here: rdps/rContribution have
+ * never been observed present on *any* entry, old or new (a separate,
+ * pre-existing gap — see clearMessage.js's formatStat), so defaulting to
+ * "dps-shaped" data is the option actually backed by what's on the entry.
+ * formatStat/formatPercent/formatPercentile are all null-safe, so a cell
+ * whose field genuinely isn't on this entry just renders "N/A" instead of
+ * dropping out or crashing. */
 function buildHideableCells(entry, role) {
-  const statFields = role === 'support' ? SUPPORT_STAT_FIELDS : role === 'dps' ? DPS_STAT_FIELDS : [];
+  const statFields = role === 'support' ? SUPPORT_STAT_FIELDS : DPS_STAT_FIELDS;
   const eligibleStats = statFields.filter((f) => f.getValue(entry, new Set()) !== null);
   return [...IDENTIFYING_FIELDS, ...eligibleStats.map((f) => ({ ...f, scope: 'field' }))];
 }
