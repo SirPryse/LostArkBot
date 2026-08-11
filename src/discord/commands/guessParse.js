@@ -1,9 +1,11 @@
+import path from 'node:path';
 import {
   SlashCommandBuilder,
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  AttachmentBuilder,
   MessageFlags,
   escapeMarkdown,
 } from 'discord.js';
@@ -14,6 +16,7 @@ import { getCharacterLogs } from '../../lostarkbible/client.js';
 import { getRole, formatStat, FALLBACK_COLOR } from '../../notify/clearMessage.js';
 import { getMinDps } from '../../notify/minDps.js';
 import { getFriendlyBossName, ALL_KNOWN_BOSSES } from '../../notify/raidFamilies.js';
+import { getBossImagePath } from '../../notify/bossImages.js';
 import { tierForFraction } from '../../notify/percentileTiers.js';
 import { sleep } from '../../utils/sleep.js';
 
@@ -226,10 +229,21 @@ function shuffle(array) {
 // matches the original DPS layout.
 const INLINE_FIELDS = new Set(['Percentile']);
 
+/** Doesn't leak the answer — the boss/gate is already shown un-redacted in
+ * the embed title (guess-parse hides *who* cleared it, never *what* was
+ * cleared), so a banner image is free information, same as clearMessage.js's
+ * announcements. One stable filename per round (not per-edit, unlike
+ * clearMessage.js's consolidation case) since the image never changes
+ * across a round's guesses/reveal — only ever uploaded once, at round
+ * creation; see queueRoundEdit's first call in execute(). */
+function imageFilename(roundId, boss) {
+  return `boss-${roundId}${path.extname(getBossImagePath(boss))}`;
+}
+
 /** Same stat breakdown a clear announcement would show — name always
  * hidden, plus whichever of `hiddenKeys` (drawn from `cells`) get replaced
  * with a lock icon instead of their real value. */
-function buildRedactedEmbed(entry, difficultyKey, hiddenKeys, cells) {
+function buildRedactedEmbed(entry, difficultyKey, hiddenKeys, cells, imageFile) {
   const bossLabel = getFriendlyBossName(entry.boss, entry.difficulty);
   const config = DIFFICULTY[difficultyKey];
 
@@ -261,6 +275,7 @@ function buildRedactedEmbed(entry, difficultyKey, hiddenKeys, cells) {
     .setDescription(descriptionLines.join('\n'))
     .addFields(fields)
     .setColor(FALLBACK_COLOR)
+    .setImage(`attachment://${imageFile}`)
     .setFooter({
       text: `${config.label} (${config.basePoints} base pt) — 1st guess 5x, 2nd guess 3x, 3rd guess 1x • reveals in 3 min if unsolved`,
     });
@@ -295,7 +310,7 @@ function buildWrongGuessesField(wrongGuessers) {
  * someone else's concurrent guess revealed the round in the meantime. */
 function buildRoundEmbed(round) {
   const hiddenKeys = round.revealed ? new Set() : round.hiddenKeys;
-  const embed = buildRedactedEmbed(round.entry, round.difficultyKey, hiddenKeys, round.cells);
+  const embed = buildRedactedEmbed(round.entry, round.difficultyKey, hiddenKeys, round.cells, round.imageFilename);
   const guessesField = buildGuessesField(round.correctGuessers);
   if (guessesField) embed.addFields(guessesField);
   const shameField = buildWrongGuessesField(round.wrongGuessers);
@@ -489,6 +504,7 @@ export const guessParseCommand = {
     const hiddenKeys = pickHiddenKeys(cells, config.hideCount);
 
     const roundId = interaction.id; // known immediately, no need to send first to get a message id
+    const imageFile = imageFilename(roundId, entry.boss);
     const round = {
       correctIndex,
       correctName: escapeMarkdown(answerCandidate.character_name),
@@ -498,6 +514,7 @@ export const guessParseCommand = {
       difficultyKey,
       cells,
       hiddenKeys,
+      imageFilename: imageFile,
       basePoints: config.basePoints,
       correctGuessers: [], // { userId, username, points }, in guess order
       wrongGuessers: [], // { userId, username }, in guess order — the shame list
@@ -509,9 +526,18 @@ export const guessParseCommand = {
     };
     activeRounds.set(roundId, round);
 
+    // The boss image only needs uploading once — later queueRoundEdit calls
+    // (guesses, timeout reveal) rebuild the embed but leave `files` unset,
+    // which per Discord's edit semantics leaves the existing attachment
+    // alone. Deliberately NOT re-uploading on every edit like
+    // clearMessage.js's consolidation case does — that's only needed there
+    // because each append repoints the image at a fresh copy; a guess-parse
+    // round's image never changes across its own lifetime.
+    const attachment = new AttachmentBuilder(getBossImagePath(entry.boss), { name: imageFile });
     await queueRoundEdit(round, interaction, () => ({
       embeds: [buildRoundEmbed(round)],
       components: [buildButtons(roundId, round.choices, round.revealed)],
+      files: [attachment],
     }));
 
     round.timeoutHandle = setTimeout(async () => {
