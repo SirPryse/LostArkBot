@@ -64,14 +64,10 @@ export const rosterPageCommand = {
       return;
     }
 
-    const { total } = await getAggregateStats(account.id, interaction.guildId, TIERS);
-    if (total === 0) {
-      await interaction.editReply(
-        "No competitive clears recorded yet across your tracked characters in this server — check back after your next clear.",
-      );
-      return;
-    }
-
+    // No early return on zero clears — Guess-Parse Badges (the weekly
+    // leaderboard field) come from guessLeaderboardBadges.js, entirely
+    // unrelated to clear_history, so someone with real clears not yet
+    // logged (or none at all) can still have those to show.
     const buttons = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`${VISIBILITY_PREFIX}self`).setLabel('Only me').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
