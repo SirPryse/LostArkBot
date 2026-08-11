@@ -1,4 +1,4 @@
-import { Events } from 'discord.js';
+import { Events, ActivityType } from 'discord.js';
 import { createDiscordClient, loginDiscordClient } from './discord/client.js';
 import { startPolling } from './scheduler/poller.js';
 import { startWeeklyResetSchedule } from './scheduler/weeklyReset.js';
@@ -31,6 +31,8 @@ const oauthServer = startOAuthServer();
 
 client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user.tag}`);
+
+  client.user.setActivity('Lost Ark', { type: ActivityType.Playing });
 
   startPolling(client);
   console.log(`Polling every ${config.pollIntervalMinutes} minute(s).`);
