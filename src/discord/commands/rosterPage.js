@@ -19,18 +19,14 @@ const WEEKLY_RANK_MEDALS = [
   { rank: 3, emoji: '🥉' },
 ];
 
-/** One tier per line so the badge counts are actually readable. */
-function badgeLines(counts) {
-  return TIERS.map((t) => `${t.emoji} **${counts[t.key]}**`).join('\n');
+/** One tier/rank per line so the counts are actually readable. */
+function badgeLines(entries, counts, keyOf) {
+  return entries.map((e) => `${e.emoji} **${counts[keyOf(e)]}**`).join('\n');
 }
 
 /** Weekly guess-parse leaderboard placements — deliberately its own field,
- * not merged into the percentile-tier Badges above (different game,
+ * not merged into the percentile-tier Parse Badges above (different game,
  * different achievement). See guessLeaderboardBadges.js. */
-function weeklyBadgeLines(counts) {
-  return WEEKLY_RANK_MEDALS.map((m) => `${m.emoji} **${counts[m.rank]}**`).join('\n');
-}
-
 async function buildRosterPageEmbed(linkedAccountId, discordUserId, guildId, user) {
   const [{ total, diedCount, tierCounts }, weeklyBadgeCounts] = await Promise.all([
     getAggregateStats(linkedAccountId, guildId, TIERS),
@@ -46,8 +42,8 @@ async function buildRosterPageEmbed(linkedAccountId, discordUserId, guildId, use
           `Total gates cleared: **${total}**\n` + `Died in **${diedCount}** raid${diedCount === 1 ? '' : 's'}`,
         )
         .addFields(
-          { name: 'Badges', value: badgeLines(tierCounts), inline: true },
-          { name: '🏆 Weekly Champion Badges', value: weeklyBadgeLines(weeklyBadgeCounts), inline: true },
+          { name: '🎖️ Parse Badges', value: badgeLines(TIERS, tierCounts, (t) => t.key), inline: true },
+          { name: '🏆 Guess-Parse Badges', value: badgeLines(WEEKLY_RANK_MEDALS, weeklyBadgeCounts, (m) => m.rank), inline: true },
         )
         .setColor(FALLBACK_COLOR),
     ],
