@@ -12,6 +12,10 @@ function getKey() {
   return key;
 }
 
+// Unused within this repo — this bot only ever decrypts (per SCHEMA.md, the
+// separate app-page project is the one that writes `access_token`). Kept
+// as the canonical reference for that project to port byte-for-byte when
+// it's built, so the two sides agree on the exact encrypted format.
 export function encryptToken(plaintext) {
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, getKey(), iv);

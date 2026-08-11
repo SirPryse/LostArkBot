@@ -85,3 +85,15 @@ instead of posting a separate one. See `src/scheduler/poller.js`'s
 Owned entirely by the bot — set via the `/announce-channel` slash command by a
 server admin. The app page doesn't need Discord channel-listing permissions;
 it only needs to know a `guild_id` when writing `tracked_characters`.
+
+## `guess_game_scores`
+
+**Bot-owned**, and entirely separate from raid-tracking data — this is just
+the leaderboard for the `/guess-parse` minigame (`/guess-leaderboard` reads
+it). The app page never touches this table.
+
+| column             | notes                                                        |
+|---------------------|--------------------------------------------------------------|
+| `guild_id`          | part of the primary key, with `discord_user_id`               |
+| `discord_user_id`   | part of the primary key                                       |
+| `points`            | cumulative score — a correct guess is worth more on a harder `/guess-parse` difficulty, so this is points, not a plain win count |

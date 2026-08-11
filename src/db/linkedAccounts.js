@@ -1,10 +1,5 @@
 import { pool } from './pool.js';
 
-export async function getLinkedAccountById(id) {
-  const { rows } = await pool.query('select * from linked_accounts where id = $1', [id]);
-  return rows[0] ?? null;
-}
-
 export async function getByDiscordUserId(discordUserId) {
   const { rows } = await pool.query('select * from linked_accounts where discord_user_id = $1', [
     discordUserId,

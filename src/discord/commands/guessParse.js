@@ -15,6 +15,7 @@ import { getRole, formatStat, FALLBACK_COLOR } from '../../notify/clearMessage.j
 import { getMinDps } from '../../notify/minDps.js';
 import { getFriendlyBossName } from '../../notify/raidFamilies.js';
 import { tierForFraction } from '../../notify/percentileTiers.js';
+import { sleep } from '../../utils/sleep.js';
 
 const PICK_PREFIX = 'guess-parse-pick:';
 // Caps *rounds*, not total live lookups — every account gets tried once
@@ -29,10 +30,6 @@ const MAX_ANSWER_ROUNDS = 3;
 // bonk.js/poller.js do, so a bad-luck /guess-parse doesn't burst-fire
 // lostark.bible's rate limit.
 const ANSWER_ATTEMPT_DELAY_MS = 150;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 
 // Auroral Teahouse's own custom emoji — usable in message text regardless

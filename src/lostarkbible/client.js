@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import { TokenExpiredError, InsufficientScopeError } from './errors.js';
+import { sleep } from '../utils/sleep.js';
 
 // 429 ("slow_down") is a shared app-wide throttle, not a per-caller thing —
 // callers like /bonk (one big burst of requests for a large roster) can hit
@@ -7,10 +8,6 @@ import { TokenExpiredError, InsufficientScopeError } from './errors.js';
 // with backoff here fixes it once for every caller instead of needing
 // retry logic duplicated in each command.
 const MAX_RATE_LIMIT_RETRIES = 4;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function request(path, accessToken, attempt = 0) {
   const response = await fetch(`${config.laBibleBaseUrl}${path}`, {

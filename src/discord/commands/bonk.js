@@ -8,16 +8,13 @@ import { RAID_FAMILIES, getRaidFamilyForBoss } from '../../notify/raidFamilies.j
 import { lastWednesdayReset } from '../../notify/raidWeek.js';
 import { getClassEmoji } from '../../notify/classIcons.js';
 import { formatStat } from '../../notify/clearMessage.js';
+import { sleep } from '../../utils/sleep.js';
 
 // Same pacing poller.js uses between characters — /bonk fires one burst of
 // requests per invocation (unlike the poller's already-spread-out 10-minute
 // tick), so a roster with many alts can otherwise trip lostark.bible's
 // rate limit in a couple seconds flat.
 const PER_CHARACTER_DELAY_MS = 200;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** `<:name:id>` — the inline-text form of a custom emoji, distinct from the
  * `{id, name}` object `.setEmoji()` wants on a component. */

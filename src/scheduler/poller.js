@@ -13,6 +13,7 @@ import {
 } from '../notify/clearMessage.js';
 import { TokenExpiredError, InsufficientScopeError } from '../lostarkbible/errors.js';
 import { config } from '../config.js';
+import { sleep } from '../utils/sleep.js';
 
 const CLAIM_WAIT_RETRIES = 10;
 const CLAIM_WAIT_INTERVAL_MS = 500;
@@ -31,10 +32,6 @@ const PER_CHARACTER_DELAY_MS = 200;
 // that window for what should be a very reliable write.
 const SET_MESSAGE_RETRIES = 3;
 const SET_MESSAGE_RETRY_DELAY_MS = 300;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function setMessageWithRetry(guildId, logId, channelId, messageId) {
   for (let attempt = 1; attempt <= SET_MESSAGE_RETRIES; attempt++) {

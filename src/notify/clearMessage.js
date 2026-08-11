@@ -26,7 +26,7 @@ export const FALLBACK_COLOR = 0x5865f2; // Discord blurple
 // container switches to this regardless of either member's role — a
 // multi-person clear is notable on its own, distinct from either a solo
 // DPS or solo support post.
-export const GROUP_CLEAR_COLOR = 0xffd700; // gold
+const GROUP_CLEAR_COLOR = 0xffd700; // gold
 
 const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 

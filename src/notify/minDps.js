@@ -10,7 +10,7 @@
  * adding a new raid is just appending an entry, same pattern as
  * raidFamilies.js and bossImages.js.
  */
-export const MIN_DPS = {
+const MIN_DPS = {
   'Witch of Agony, Serca': {
     Normal: 205_511_399,
     Hard: 427_537_749,
