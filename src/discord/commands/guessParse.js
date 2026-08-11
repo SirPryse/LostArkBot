@@ -275,7 +275,7 @@ function buildRedactedEmbed(entry, difficultyKey, hiddenKeys, cells, imageFile) 
     .setDescription(descriptionLines.join('\n'))
     .addFields(fields)
     .setColor(FALLBACK_COLOR)
-    .setImage(`attachment://${imageFile}`)
+    .setThumbnail(`attachment://${imageFile}`)
     .setFooter({
       text: `${config.label} (${config.basePoints} base pt) — 1st guess 5x, 2nd guess 3x, 3rd guess 1x • reveals in 3 min if unsolved`,
     });
