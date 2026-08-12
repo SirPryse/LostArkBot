@@ -42,6 +42,12 @@ const MIN_DPS = {
   'Phantom Manifester Brelshaza': {
     Normal: 49_308_883,
     Hard: 96_076_142,
+    // Brelshaza Extreme (separate weekly clear, see raidFamilies.js) — no
+    // recorded averages yet, same "leave it null, not a guess" convention
+    // as Aegir's 'Extreme Normal' above.
+    'Extreme Normal': null,
+    'Extreme Hard': null,
+    'Extreme Nightmare': null,
   },
   'Infernas': {
     Normal: 58_535_550,
