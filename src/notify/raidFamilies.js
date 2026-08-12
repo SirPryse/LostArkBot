@@ -40,6 +40,20 @@ export const RAID_FAMILIES = [
     ],
   },
   {
+    key: 'brelshaza-extreme',
+    label: 'Brelshaza Extreme',
+    // Same single-encounter shape as Aegir Extreme above — just Gate 2's
+    // boss ("Phantom Manifester Brelshaza"), no Extreme equivalent of Gate
+    // 1 ("Narok the Butcher").
+    hideGateNumber: true,
+    // Same boss name as regular Brelshaza Gate 2 below, but a separate
+    // weekly clear — see the file-level comment on why this needs the
+    // difficulty-restricted alias form instead of a plain string.
+    gates: [
+      [{ name: 'Phantom Manifester Brelshaza', difficulties: ['Extreme Normal', 'Extreme Hard', 'Extreme Nightmare'] }],
+    ],
+  },
+  {
     key: 'cathedral',
     label: 'Cathedral',
     gates: [['Archbishop Arcenos'], ['Arcenos, Vanguard of Fanaticism']],
@@ -73,7 +87,13 @@ export const RAID_FAMILIES = [
     label: 'Brelshaza',
     // Not the same raid as "Brelshaza, Ember in the Ashes" above (that's
     // Armoche Gate 1) — the game reused the name for a different raid.
-    gates: [['Narok the Butcher'], ['Phantom Manifester Brelshaza']],
+    // Gate 2's boss name is shared with Brelshaza Extreme (separate family
+    // above) — see the file-level comment on the difficulty-restricted
+    // alias form.
+    gates: [
+      ['Narok the Butcher'],
+      [{ name: 'Phantom Manifester Brelshaza', difficulties: ['Normal', 'Hard'] }],
+    ],
   },
   {
     key: 'aegir',
