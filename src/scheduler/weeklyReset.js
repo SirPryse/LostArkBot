@@ -1,5 +1,5 @@
 import { EmbedBuilder } from 'discord.js';
-import { listAnnouncementChannels } from '../db/guildSettings.js';
+import { listAnnouncementChannels, claimWeeklyReset } from '../db/guildSettings.js';
 import { getLeaderboard, resetLeaderboard } from '../db/guessGame.js';
 import { awardBadge } from '../db/guessLeaderboardBadges.js';
 import { clearChannel } from '../utils/clearChannel.js';
@@ -40,8 +40,24 @@ function buildWeeklyChampionsEmbed(topThree) {
  * badges for the captured top 3 — kept entirely separate from
  * clear_history's percentile-tier badges, see guessLeaderboardBadges.js —
  * then post the champions embed to the now-empty channel.
+ *
+ * Claims the reset via claimWeeklyReset() first and bails out immediately
+ * if it doesn't get the claim — confirmed live this can otherwise
+ * double-fire (two full runs landed ~4s apart for the same guild, doubling
+ * everyone's badge count; exact trigger unconfirmed, leading theory is a
+ * redeploy racing the scheduled reset instant). This is a real DB-level
+ * claim specifically because an in-memory guard wouldn't help if the two
+ * calls come from two different processes, which is the suspected case
+ * here — one process's own duplicate call within itself isn't the only
+ * failure mode this needs to cover.
  */
 export async function runWeeklyReset(discordClient, guildId, channelId) {
+  const claimed = await claimWeeklyReset(guildId);
+  if (!claimed) {
+    console.log(`Weekly reset for guild ${guildId} already claimed recently — skipping duplicate run.`);
+    return;
+  }
+
   const topThree = await getLeaderboard(guildId, 3);
 
   const channel = await discordClient.channels.fetch(channelId).catch(() => null);
