@@ -46,8 +46,8 @@ const MIN_DPS = {
     // recorded averages yet, same "leave it null, not a guess" convention
     // as Aegir's 'Extreme Normal' above.
     'Extreme Normal': null,
-    'Extreme Hard': null,
-    'Extreme Nightmare': null,
+    'Extreme Hard': 439_089_097,
+    'Extreme Nightmare': 996_857_662,
   },
   'Infernas': {
     Normal: 58_535_550,
