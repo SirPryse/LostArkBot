@@ -35,9 +35,12 @@ const MAX_ANSWER_ROUNDS = 3;
 const ANSWER_ATTEMPT_DELAY_MS = 150;
 // Now that ALL_KNOWN_BOSSES unlocks real pagination (see tryCandidate),
 // a random page in this range reaches genuinely deep history instead of
-// re-reading the same most-recent window every time.
+// re-reading the same most-recent window every time. Capped at 2 (up to
+// ~50 of a character's most recent matching entries) rather than reaching
+// further back — a deliberate choice to keep answers recent enough to be
+// guessable, not a technical limit.
 const MIN_LOG_PAGE = 1;
-const MAX_LOG_PAGE = 10;
+const MAX_LOG_PAGE = 2;
 const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 
 // Auroral Teahouse's own custom emoji — usable in message text regardless
