@@ -335,7 +335,9 @@ function buildRoundEmbed(round) {
   if (round.revealed) {
     const text = round.revealReason === 'timeout'
       ? `⏰ Time's up! It was ${round.correctName}!`
-      : `Round over — it was ${round.correctName}!`;
+      : round.revealReason === 'shutdown'
+        ? `🔄 Round ended early (bot restarted) — it was ${round.correctName}!`
+        : `Round over — it was ${round.correctName}!`;
     embed.setFooter({ text });
   }
   return embed;
@@ -375,6 +377,33 @@ function queueRoundEdit(round, interaction, buildPayload) {
       console.error('guess-parse: failed to apply a queued round edit:', err);
     });
   return round.editQueue;
+}
+
+/** Called from index.js's shutdown handler, before the client disconnects —
+ * activeRounds (and every round's timeoutHandle) is in-memory only, so
+ * without this, any round still open when the process restarts would be
+ * orphaned: its message stuck showing locked fields and live-looking
+ * buttons forever, since the setTimeout that would've revealed it never
+ * survives the restart. Reveals every still-open round immediately instead,
+ * the same way a normal timeout would, just early. Uses each round's own
+ * stored `interaction` (the original slash-command one, same one the
+ * timeout handler already relies on) rather than needing a button-click
+ * interaction, since shutdown isn't triggered by one. */
+export async function closeAllActiveRounds() {
+  const rounds = [...activeRounds.entries()];
+  activeRounds.clear();
+
+  await Promise.all(
+    rounds.map(async ([roundId, round]) => {
+      clearTimeout(round.timeoutHandle);
+      round.revealed = true;
+      round.revealReason = 'shutdown';
+      await queueRoundEdit(round, round.interaction, () => ({
+        embeds: [buildRoundEmbed(round)],
+        components: [buildButtons(roundId, round.choices, round.revealed)],
+      }));
+    }),
+  );
 }
 
 async function tryCandidate(candidate) {
@@ -538,8 +567,14 @@ export const guessParseCommand = {
       attemptedUsers: new Set(), // one guess per user, right or wrong
       timeoutHandle: null,
       revealed: false,
-      revealReason: null, // 'guesses' | 'timeout', set once revealed becomes true
+      revealReason: null, // 'guesses' | 'timeout' | 'shutdown', set once revealed becomes true
       editQueue: null, // see queueRoundEdit()
+      // Kept so closeAllActiveRounds() (see below) can reveal this round on
+      // its own, independent of whichever button-click interaction might
+      // otherwise be handling an edit — the same interaction the timeout
+      // handler below already relies on via closure, just also reachable
+      // from outside execute() now.
+      interaction,
     };
     activeRounds.set(roundId, round);
 

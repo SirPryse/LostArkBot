@@ -3,6 +3,7 @@ import { createDiscordClient, loginDiscordClient } from './discord/client.js';
 import { startPolling } from './scheduler/poller.js';
 import { startWeeklyResetSchedule } from './scheduler/weeklyReset.js';
 import { startOAuthServer } from './web/server.js';
+import { closeAllActiveRounds } from './discord/commands/guessParse.js';
 import { config } from './config.js';
 import { pool } from './db/pool.js';
 
@@ -44,6 +45,13 @@ client.once(Events.ClientReady, () => {
 // immediately by a restart), never a clean shutdown.
 async function shutdown(signal) {
   console.log(`Received ${signal}, shutting down...`);
+  // Before the gateway/REST client goes away — any /guess-parse round still
+  // open at this point would otherwise be orphaned (its in-memory state and
+  // timeout both wiped by the restart, message left stuck forever). Closing
+  // them out first means they resolve early instead, same as a normal
+  // timeout reveal. Needs the client to still be usable, hence ahead of
+  // client.destroy() below.
+  await closeAllActiveRounds().catch((err) => console.error('Failed to close active guess-parse rounds:', err));
   await client.destroy();
   await new Promise((resolve) => oauthServer.close(resolve));
   await pool.end();
