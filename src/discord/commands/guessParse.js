@@ -80,6 +80,13 @@ const IDENTIFYING_FIELDS = [
   { key: 'gearScore', label: 'Gear Score', scope: 'description', getValue: (e) => formatStat(e.gearScore) },
   { key: 'combatPower', label: 'Combat Power', scope: 'description', getValue: (e) => formatStat(e.combatPower) },
   { key: 'duration', label: 'Duration', scope: 'description', getValue: (e) => formatDuration(e.duration) },
+  // Real, exact timestamp from lostark.bible's own log data — not derived
+  // or estimated. Shown as Discord's absolute-date tag ("March 15, 2026")
+  // for a concrete, guessable clue rather than a vague relative time. A
+  // genuinely useful clue now that pagination reaches deep history (see
+  // ALL_KNOWN_BOSSES) — the answer can be a very old clear, not just
+  // something from this week.
+  { key: 'loggedAt', label: 'Cleared on', scope: 'description', noColon: true, getValue: (e) => `<t:${Math.floor(e.timestamp / 1000)}:D>` },
 ];
 
 // Performance-stat fields, role-specific — rendered as embed fields. `field`
@@ -170,11 +177,17 @@ function applyLinkedHides(hiddenKeys, cells) {
 // hideCount budget; that budget is spent on top of this.
 const ALWAYS_HIDDEN_KEYS = new Set(['class']);
 
+// The opposite case — never eligible to be picked as one of the
+// difficulty's random hides, so it's unconditionally visible every round.
+// 'loggedAt' doesn't identify who the parse belongs to, so hiding it never
+// added real difficulty, just inconsistency in whether it showed.
+const NEVER_HIDDEN_KEYS = new Set(['loggedAt']);
+
 /** Difficulty's hideCount random picks, drawn only from the pool minus
- * whatever's always-hidden, then unioned with the always-hidden set and run
- * through the linked-hide cascade. */
+ * whatever's always-hidden or never-hidden, then unioned with the
+ * always-hidden set and run through the linked-hide cascade. */
 function pickHiddenKeys(cells, hideCount) {
-  const pickPool = cells.filter((c) => !ALWAYS_HIDDEN_KEYS.has(c.key));
+  const pickPool = cells.filter((c) => !ALWAYS_HIDDEN_KEYS.has(c.key) && !NEVER_HIDDEN_KEYS.has(c.key));
   const randomPicks = shuffle(pickPool.map((c) => c.key)).slice(0, Math.min(hideCount, pickPool.length));
   return applyLinkedHides(new Set([...ALWAYS_HIDDEN_KEYS, ...randomPicks]), cells);
 }
@@ -249,9 +262,10 @@ function buildRedactedEmbed(entry, difficultyKey, hiddenKeys, cells, imageFile) 
 
   const descriptionLines = cells
     .filter((c) => c.scope === 'description')
-    .map(({ key, label, getValue }) =>
-      hiddenKeys.has(key) ? `**${label}:** 🔒 Hidden` : `**${label}:** ${getValue(entry, hiddenKeys)}`,
-    );
+    .map(({ key, label, noColon, getValue }) => {
+      const prefix = `**${label}${noColon ? '' : ':'}**`;
+      return hiddenKeys.has(key) ? `${prefix} 🔒 Hidden` : `${prefix} ${getValue(entry, hiddenKeys)}`;
+    });
 
   const fieldCells = cells.filter((c) => c.scope === 'field');
   const groups = new Map();
