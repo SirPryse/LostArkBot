@@ -9,10 +9,11 @@ import {
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
 import { getAggregateStats } from '../../db/clearHistory.js';
 import { getBadgeCounts } from '../../db/guessLeaderboardBadges.js';
+import { getGuessStats } from '../../db/guessStats.js';
 import { TIERS } from '../../notify/percentileTiers.js';
 import { FALLBACK_COLOR } from '../../notify/clearMessage.js';
 
-const VISIBILITY_PREFIX = 'roster-page-vis:';
+const VISIBILITY_PREFIX = 'my-stats-vis:';
 const WEEKLY_RANK_MEDALS = [
   { rank: 1, emoji: '🥇' },
   { rank: 2, emoji: '🥈' },
@@ -24,25 +25,44 @@ function badgeLines(entries, counts, keyOf) {
   return entries.map((e) => `${e.emoji} **${counts[keyOf(e)]}**`).join('\n');
 }
 
+/** '—' rather than "0%" or NaN% when nobody's guessed yet — a made-up 0%
+ * would misleadingly read as "always wrong" instead of "hasn't played". */
+function formatWinRate(correct, total) {
+  if (total === 0) return '—';
+  return `${Math.round((correct / total) * 100)}%`;
+}
+
 /** Weekly guess-parse leaderboard placements — deliberately its own field,
- * not merged into the percentile-tier Parse Badges above (different game,
- * different achievement). See guessLeaderboardBadges.js. */
-async function buildRosterPageEmbed(linkedAccountId, discordUserId, guildId, user) {
-  const [{ total, diedCount, tierCounts }, weeklyBadgeCounts] = await Promise.all([
+ * not merged into the percentile-tier Raid Badges above (different game,
+ * different achievement). See guessLeaderboardBadges.js. Guess-Parse Stats
+ * (win rate / total guesses) is a third, separate axis again — a lifetime
+ * record from guess_stats, never reset by the weekly leaderboard wipe. */
+async function buildMyStatsEmbed(linkedAccountId, discordUserId, guildId, user) {
+  const [{ total, diedCount, tierCounts }, weeklyBadgeCounts, guessStats] = await Promise.all([
     getAggregateStats(linkedAccountId, guildId, TIERS),
     getBadgeCounts(guildId, discordUserId),
+    getGuessStats(guildId, discordUserId),
   ]);
 
   return {
     embeds: [
       new EmbedBuilder()
-        .setTitle(`${user.username}'s Roster`)
+        .setTitle(`${user.username}'s Stats`)
         .setThumbnail(user.displayAvatarURL())
-        .setDescription(
-          `Total gates cleared: **${total}**\n` + `Died in **${diedCount}** raid${diedCount === 1 ? '' : 's'}`,
-        )
         .addFields(
-          { name: '🎖️ Parse Badges', value: badgeLines(TIERS, tierCounts, (t) => t.key), inline: true },
+          {
+            // Both this and Guess-Parse Stats below are non-inline and
+            // placed first — each forces its own row, so the reading order
+            // is raid stats, then guess-parse stats, then the badges row,
+            // rather than description text floating above everything.
+            name: '⚔️ Raid Stats',
+            value: `Total gates cleared: **${total}**\nDied in **${diedCount}** gate${diedCount === 1 ? '' : 's'}`,
+          },
+          {
+            name: '🎯 Guess-Parse Stats',
+            value: `Win Rate: **${formatWinRate(guessStats.correct_guesses, guessStats.total_guesses)}**\nTotal Guesses: **${guessStats.total_guesses}**`,
+          },
+          { name: '🎖️ Raid Badges', value: badgeLines(TIERS, tierCounts, (t) => t.key), inline: true },
           { name: '🏆 Guess-Parse Badges', value: badgeLines(WEEKLY_RANK_MEDALS, weeklyBadgeCounts, (m) => m.rank), inline: true },
         )
         .setColor(FALLBACK_COLOR),
@@ -50,9 +70,9 @@ async function buildRosterPageEmbed(linkedAccountId, discordUserId, guildId, use
   };
 }
 
-export const rosterPageCommand = {
+export const myStatsCommand = {
   data: new SlashCommandBuilder()
-    .setName('roster-page')
+    .setName('my-stats')
     .setDescription('View your combined clear stats across every competitive character in this server'),
 
   async execute(interaction) {
@@ -76,7 +96,7 @@ export const rosterPageCommand = {
         .setStyle(ButtonStyle.Primary),
     );
 
-    await interaction.editReply({ content: 'Your roster page is ready. Who should see it?', components: [buttons] });
+    await interaction.editReply({ content: 'Your stats are ready. Who should see it?', components: [buttons] });
   },
 
   componentHandlers: [
@@ -91,7 +111,7 @@ export const rosterPageCommand = {
           return;
         }
 
-        const payload = await buildRosterPageEmbed(account.id, interaction.user.id, interaction.guildId, interaction.user);
+        const payload = await buildMyStatsEmbed(account.id, interaction.user.id, interaction.guildId, interaction.user);
 
         await interaction.update({ content: 'Here you go!', components: [] });
         await interaction.followUp({

@@ -8,12 +8,12 @@ import {
 } from 'discord.js';
 import { clearChannel } from '../../utils/clearChannel.js';
 
-const CONFIRM_PREFIX = 'clear-channel-confirm';
-const CANCEL_PREFIX = 'clear-channel-cancel';
+const CONFIRM_PREFIX = 'nuke-confirm';
+const CANCEL_PREFIX = 'nuke-cancel';
 
-export const clearChannelCommand = {
+export const nukeCommand = {
   data: new SlashCommandBuilder()
-    .setName('clear-channel')
+    .setName('nuke')
     .setDescription('Delete every message in this channel')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
@@ -69,14 +69,14 @@ export const clearChannelCommand = {
         }
 
         const { deleted, hitCap } = result;
-        const note = hitCap ? `\nStopped early (safety cap) — run \`/clear-channel\` again to continue.` : '';
+        const note = hitCap ? `\nStopped early (safety cap) — run \`/nuke\` again to continue.` : '';
         try {
           await interaction.editReply({ content: `Deleted ${deleted} message(s) from this channel.${note}` });
         } catch (err) {
           // Interaction token can expire on a very long run (lots of >14-day-old
           // messages) even with the caps above — the deletions themselves still
           // happened, just log it instead of throwing an unhandled rejection.
-          console.error('clear-channel: failed to post final status (token likely expired):', err);
+          console.error('nuke: failed to post final status (token likely expired):', err);
         }
       },
     },

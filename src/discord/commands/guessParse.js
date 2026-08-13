@@ -11,6 +11,7 @@ import {
 } from 'discord.js';
 import { listCompetitiveWithAccountByGuild } from '../../db/trackedCharacters.js';
 import { addPoints } from '../../db/guessGame.js';
+import { recordGuess } from '../../db/guessStats.js';
 import { decryptToken } from '../../crypto/tokenCipher.js';
 import { getCharacterLogs } from '../../lostarkbible/client.js';
 import { getRole, formatStat, FALLBACK_COLOR } from '../../notify/clearMessage.js';
@@ -644,6 +645,7 @@ export const guessParseCommand = {
           // instantly, then the message edit (public shame list) and the
           // personal ephemeral note both happen after, with no 3s deadline.
           await interaction.deferUpdate();
+          await recordGuess(round.guildId, interaction.user.id, false);
           await queueRoundEdit(round, interaction, () => ({
             embeds: [buildRoundEmbed(round)],
             components: [buildButtons(roundId, round.choices, round.revealed)],
@@ -679,6 +681,7 @@ export const guessParseCommand = {
         // acks instantly; editReply() afterwards has no such deadline.
         await interaction.deferUpdate();
         await addPoints(round.guildId, interaction.user.id, points);
+        await recordGuess(round.guildId, interaction.user.id, true);
 
         await queueRoundEdit(round, interaction, () => ({
           embeds: [buildRoundEmbed(round)],
