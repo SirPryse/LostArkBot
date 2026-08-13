@@ -479,8 +479,8 @@ export const guessParseCommand = {
     .addStringOption((option) =>
       option
         .setName('difficulty')
-        .setDescription('How much info to hide — harder means fewer clues and higher base points')
-        .setRequired(true)
+        .setDescription('How much info to hide — harder means fewer clues and higher base points (default: Hard)')
+        .setRequired(false)
         .addChoices(
           { name: 'Easy (hide 1, base 1 pt)', value: 'easy' },
           { name: 'Medium (hide 2, base 2 pt)', value: 'medium' },
@@ -491,7 +491,7 @@ export const guessParseCommand = {
   async execute(interaction) {
     await interaction.deferReply();
 
-    const difficultyKey = interaction.options.getString('difficulty', true);
+    const difficultyKey = interaction.options.getString('difficulty') ?? 'hard';
     const config = DIFFICULTY[difficultyKey];
 
     const allCandidates = await listCompetitiveWithAccountByGuild(interaction.guildId);
