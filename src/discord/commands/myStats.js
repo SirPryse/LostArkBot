@@ -9,7 +9,7 @@ import {
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
 import { getAggregateStats } from '../../db/clearHistory.js';
 import { getBadgeCounts } from '../../db/guessLeaderboardBadges.js';
-import { getGuessStats } from '../../db/guessStats.js';
+import { getLifetimeStats } from '../../db/guessGame.js';
 import { TIERS } from '../../notify/percentileTiers.js';
 import { FALLBACK_COLOR } from '../../notify/clearMessage.js';
 
@@ -35,13 +35,14 @@ function formatWinRate(correct, total) {
 /** Weekly guess-parse leaderboard placements — deliberately its own field,
  * not merged into the percentile-tier Raid Badges above (different game,
  * different achievement). See guessLeaderboardBadges.js. Guess-Parse Stats
- * (win rate / total guesses) is a third, separate axis again — a lifetime
- * record from guess_stats, never reset by the weekly leaderboard wipe. */
+ * (win rate / total guesses) is a third, separate axis again — an unbounded
+ * getLifetimeStats() query (no time filter, unlike the weekly leaderboard),
+ * so it's a permanent record never reset by the weekly leaderboard wipe. */
 async function buildMyStatsEmbed(linkedAccountId, discordUserId, guildId, user) {
   const [{ total, diedCount, tierCounts }, weeklyBadgeCounts, guessStats] = await Promise.all([
     getAggregateStats(linkedAccountId, guildId, TIERS),
     getBadgeCounts(guildId, discordUserId),
-    getGuessStats(guildId, discordUserId),
+    getLifetimeStats(guildId, discordUserId),
   ]);
 
   return {

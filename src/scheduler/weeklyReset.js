@@ -1,6 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
-import { listAnnouncementChannels, claimWeeklyReset } from '../db/guildSettings.js';
-import { getLeaderboard, resetLeaderboard } from '../db/guessGame.js';
+import { listAnnouncementChannels, claimWeeklyReset, getLastResetAt } from '../db/guildSettings.js';
+import { getLeaderboard } from '../db/guessGame.js';
 import { awardBadge } from '../db/guessLeaderboardBadges.js';
 import { clearChannel } from '../utils/clearChannel.js';
 
@@ -28,20 +28,27 @@ function buildWeeklyChampionsEmbed(topThree) {
   }
 
   const lines = topThree.map(
-    (entry, i) => `${MEDAL_EMOJI[i]} <@${entry.discord_user_id}> — **${entry.points}** pt${entry.points === 1 ? '' : 's'}`,
+    (entry, i) =>
+      `${MEDAL_EMOJI[i]} <@${entry.discord_user_id}> — **${entry.points}** pt${entry.points === 1 ? '' : 's'} (${entry.guesses} guess${entry.guesses === 1 ? '' : 'es'})`,
   );
   embed.setDescription(`This week's raid reset just hit — here's who dominated the guessing game:\n\n${lines.join('\n')}`);
   return embed;
 }
 
 /**
- * The weekly ritual for one guild: read the top 3 (before anything is
- * destroyed), wipe the announcement channel, wipe the leaderboard, award
- * badges for the captured top 3 — kept entirely separate from
- * clear_history's percentile-tier badges, see guessLeaderboardBadges.js —
- * then post the champions embed to the now-empty channel.
+ * The weekly ritual for one guild: read the top 3 (before the channel is
+ * wiped), wipe the announcement channel, award badges for the captured top
+ * 3 — kept entirely separate from clear_history's percentile-tier badges,
+ * see guessLeaderboardBadges.js — then post the champions embed to the
+ * now-empty channel.
  *
- * Claims the reset via claimWeeklyReset() first and bails out immediately
+ * Reads the current week's boundary (getLastResetAt()) *before* claiming —
+ * claimWeeklyReset() immediately overwrites that same column to `now()` as
+ * its own locking mechanism, so the old value has to be captured first or
+ * it's gone. That captured value is exactly "the start of the week that's
+ * ending", which is what the leaderboard query below needs.
+ *
+ * Claims the reset via claimWeeklyReset() next and bails out immediately
  * if it doesn't get the claim — confirmed live this can otherwise
  * double-fire (two full runs landed ~4s apart for the same guild, doubling
  * everyone's badge count; exact trigger unconfirmed, leading theory is a
@@ -50,15 +57,23 @@ function buildWeeklyChampionsEmbed(topThree) {
  * calls come from two different processes, which is the suspected case
  * here — one process's own duplicate call within itself isn't the only
  * failure mode this needs to cover.
+ *
+ * No explicit leaderboard wipe anymore (there used to be one) — the next
+ * week's /guess-leaderboard and /guess-parse-weekly-reset both read off
+ * guess_attempts filtered by created_at >= the guild's (now-updated)
+ * last_reset_at, so last week's rows just naturally fall outside that
+ * window without needing to delete anything.
  */
 export async function runWeeklyReset(discordClient, guildId, channelId) {
+  const weekStart = await getLastResetAt(guildId);
+
   const claimed = await claimWeeklyReset(guildId);
   if (!claimed) {
     console.log(`Weekly reset for guild ${guildId} already claimed recently — skipping duplicate run.`);
     return;
   }
 
-  const topThree = await getLeaderboard(guildId, 3);
+  const topThree = await getLeaderboard(guildId, weekStart, 3);
 
   const channel = await discordClient.channels.fetch(channelId).catch(() => null);
   if (channel) {
@@ -66,8 +81,6 @@ export async function runWeeklyReset(discordClient, guildId, channelId) {
       console.error(`Weekly reset: failed to clear channel for guild ${guildId}:`, err),
     );
   }
-
-  await resetLeaderboard(guildId);
 
   for (let i = 0; i < topThree.length; i++) {
     await awardBadge(guildId, topThree[i].discord_user_id, i + 1, topThree[i].points);

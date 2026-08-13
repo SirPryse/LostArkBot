@@ -10,8 +10,7 @@ import {
   escapeMarkdown,
 } from 'discord.js';
 import { listCompetitiveWithAccountByGuild } from '../../db/trackedCharacters.js';
-import { addPoints } from '../../db/guessGame.js';
-import { recordGuess } from '../../db/guessStats.js';
+import { recordAttempt } from '../../db/guessGame.js';
 import { decryptToken } from '../../crypto/tokenCipher.js';
 import { getCharacterLogs } from '../../lostarkbible/client.js';
 import { getRole, formatStat, FALLBACK_COLOR } from '../../notify/clearMessage.js';
@@ -645,7 +644,7 @@ export const guessParseCommand = {
           // instantly, then the message edit (public shame list) and the
           // personal ephemeral note both happen after, with no 3s deadline.
           await interaction.deferUpdate();
-          await recordGuess(round.guildId, interaction.user.id, false);
+          await recordAttempt(round.guildId, interaction.user.id, false, 0);
           await queueRoundEdit(round, interaction, () => ({
             embeds: [buildRoundEmbed(round)],
             components: [buildButtons(roundId, round.choices, round.revealed)],
@@ -675,13 +674,12 @@ export const guessParseCommand = {
           activeRounds.delete(roundId);
         }
 
-        // Ack immediately — addPoints() below is a DB round-trip, and
+        // Ack immediately — recordAttempt() below is a DB round-trip, and
         // waiting on it before responding risks blowing the 3s interaction
         // ack window (especially under back-to-back guesses). deferUpdate()
         // acks instantly; editReply() afterwards has no such deadline.
         await interaction.deferUpdate();
-        await addPoints(round.guildId, interaction.user.id, points);
-        await recordGuess(round.guildId, interaction.user.id, true);
+        await recordAttempt(round.guildId, interaction.user.id, true, points);
 
         await queueRoundEdit(round, interaction, () => ({
           embeds: [buildRoundEmbed(round)],

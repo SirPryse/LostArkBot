@@ -40,6 +40,16 @@ export async function setAnnouncementChannel(guildId, channelId) {
 // process misbehaving, which is exactly the scenario suspected here.
 const RESET_CLAIM_WINDOW_HOURS = 20;
 
+/** The start of the guild's current guess-parse week — also doubles as
+ * "the week that's about to end" when read right before claimWeeklyReset()
+ * overwrites it. null if this guild has never had a reset (brand new, or
+ * pre-dates last_reset_at existing at all) — callers should treat that as
+ * "no lower bound" (all-time). */
+export async function getLastResetAt(guildId) {
+  const { rows } = await pool.query('select last_reset_at from guild_settings where guild_id = $1', [guildId]);
+  return rows[0]?.last_reset_at ?? null;
+}
+
 /** Atomically claims the weekly reset for this guild — returns true if this
  * call successfully claimed it (i.e. no reset recorded within the last 20
  * hours), false if another call already claimed it recently and this one
