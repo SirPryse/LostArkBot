@@ -37,7 +37,7 @@ function badgeLines(entries, counts, keyOf) {
 /** '—' rather than "0%" or NaN% when nobody's guessed yet — a made-up 0%
  * would misleadingly read as "always wrong" instead of "hasn't played". */
 function formatWinRate(correct, total) {
-  if (total === 0) return '—';
+  if (total === 0) return '-';
   return `${Math.round((correct / total) * 100)}%`;
 }
 
@@ -126,14 +126,14 @@ async function buildMyStatsEmbed(linkedAccountId, discordUserId, guildId, user) 
             name: '⚔️ Battle Record',
             value:
               `Total gates cleared: **${total}**\n` +
-              `${deathTierEmoji(diedCount)} **${diedCount}** — ${deathFlavor(diedCount)}\n` +
-              `🚌 **${busCount}** — ${busFlavor(busCount)}\n` +
+              `${deathTierEmoji(diedCount)} **${diedCount}** - ${deathFlavor(diedCount)}\n` +
+              `🚌 **${busCount}** - ${busFlavor(busCount)}\n` +
               `⚠️ **${belowMinDpsCount}** below Min DPS`,
           },
           {
             name: '🎯 Guess-Parse Stats',
             value:
-              `Win Rate: **${formatWinRate(correctGuesses, totalGuesses)}**${winRateFlavorText ? ` — ${winRateFlavorText}` : ''}\n` +
+              `Win Rate: **${formatWinRate(correctGuesses, totalGuesses)}**${winRateFlavorText ? ` - ${winRateFlavorText}` : ''}\n` +
               `Total Guesses: **${totalGuesses}**`,
           },
           { name: '🎖️ Raid Badges', value: badgeLines(TIERS, tierCounts, (t) => t.key), inline: true },
