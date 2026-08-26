@@ -11,6 +11,7 @@ import {
   containerHasMember,
   getRole,
 } from '../notify/clearMessage.js';
+import { getMinDps } from '../notify/minDps.js';
 import { TokenExpiredError, InsufficientScopeError } from '../lostarkbible/errors.js';
 import { config } from '../config.js';
 import { sleep } from '../utils/sleep.js';
@@ -163,11 +164,26 @@ async function processCharacter(discordClient, row) {
       for (const entry of [...newEntries].reverse()) {
         await announceClear(discordClient, row.guild_id, channelId, entry, row.view_mode);
         if (row.view_mode === 'competitive') {
+          // null (not true/false) for anything minDps.js has no opinion on
+          // — a support clear (their own `dps` stat is a different metric
+          // entirely, this threshold was never meant to apply to it) or a
+          // boss/difficulty with no recorded threshold yet. Same ✅/⚠️
+          // check already used for the live display badge in
+          // clearMessage.js/guessParse.js, just persisted here instead of
+          // only ever computed on the fly.
+          let belowMinDps = null;
+          if (getRole(entry) === 'dps') {
+            const minDps = getMinDps(entry.boss, entry.difficulty);
+            if (minDps !== null) belowMinDps = entry.dps < minDps;
+          }
+
           await recordClear(
             row.id,
             entry.percentile ?? null,
             entry.contributionPercentile ?? null,
             Boolean(entry.isDead),
+            belowMinDps,
+            entry.isBus ?? null,
           );
         }
       }

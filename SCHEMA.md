@@ -58,7 +58,7 @@ Unique on `(linked_account_id, character_name, region, guild_id)`.
 
 **Bot-owned.** One row per clear announced for a `competitive`-view-mode
 character (nothing is logged for `compact` characters — see `/character-page`).
-Powers the badge tally on that command.
+Powers the badge tally on that command and /my-stats' Battle Record field.
 
 | column                 | notes                                                     |
 |------------------------|--------------------------------------------------------------|
@@ -66,6 +66,15 @@ Powers the badge tally on that command.
 | `percentile`               | the clear's `percentile` value ("Uptime" badges), nullable |
 | `contribution_percentile`  | the clear's `contributionPercentile` value ("Contribution" badges, support only), nullable |
 | `died`                     | from the clear's `isDead` flag                             |
+| `below_min_dps`            | whether the clear's `dps` fell under `minDps.js`'s threshold — **nullable**: null means "not applicable" (a support clear, or no threshold defined for that boss/difficulty yet), not "met the threshold". Only ever set for DPS-role clears with a real threshold. |
+| `is_bus`                   | the clear's own `isBus` flag from lostark.bible — **nullable**: null means "recorded before this column existed", not "wasn't a bus". Never backfilled for historical rows (same as `class_name`/`gear_score` on `tracked_characters` below) — real values only exist for clears recorded after this column was added. |
+
+Neither the raw `dps` value nor which boss/difficulty a clear was for gets
+stored anywhere on this table — only the two booleans computed from them at
+record time. There's also no link back to the specific lostark.bible log
+entry a row came from (no `log_id`). Both mean `below_min_dps`/`is_bus`
+can't be backfilled for old rows after the fact — confirmed live when
+asked to backfill them, this is a hard limitation, not just unimplemented.
 
 ## `raid_group_posts`
 
