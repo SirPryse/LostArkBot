@@ -19,8 +19,23 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception:', err);
   // Node's own guidance: the process is in an undefined state after this,
-  // so exit rather than keep running — Fly restarts it automatically.
-  process.exit(1);
+  // so exit rather than keep running — Fly restarts it automatically. But
+  // a bare process.exit() here orphans any /guess-parse round still open
+  // at the moment of the crash — confirmed live: a Discord connectivity
+  // blip crashed the process, and since closeAllActiveRounds() previously
+  // only ran on the graceful SIGTERM/SIGINT path (see shutdown() below),
+  // the round's message was left stuck until the next weekly reset
+  // incidentally cleared the channel ~13 hours later. Race against a
+  // timeout rather than awaiting it unconditionally — if the crash was
+  // itself caused by Discord connectivity trouble (as it was that time),
+  // further Discord API calls might also hang, and this still has to exit
+  // either way.
+  Promise.race([
+    closeAllActiveRounds().catch((closeErr) =>
+      console.error('Failed to close active guess-parse rounds during crash:', closeErr),
+    ),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]).finally(() => process.exit(1));
 });
 
 const client = createDiscordClient();
