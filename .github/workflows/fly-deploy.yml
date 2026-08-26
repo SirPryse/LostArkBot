@@ -1,8 +1,15 @@
 name: Deploy to Fly.io
 
+# Auto-deploy now happens via Fly.io's own native GitHub integration
+# (Fly dashboard -> app -> Settings -> GitHub -> "Auto-Deploy on push"),
+# not this workflow -- having both attached to the same push event on
+# `main` was racing the two deploy paths, and Fly's own integration was
+# winning that race while its own check-suite got stuck at "queued",
+# leaving this workflow with nothing to trigger it at all. Kept around
+# as a manual fallback (Actions tab -> Deploy to Fly.io -> Run workflow)
+# in case the native integration ever needs bypassing.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
