@@ -7,11 +7,13 @@ import {
   MessageFlags,
 } from 'discord.js';
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
-import { getAggregateStats } from '../../db/clearHistory.js';
+import { getAggregateStats, getEstimatedGoldForAccount } from '../../db/clearHistory.js';
 import { getBadgeCounts } from '../../db/guessLeaderboardBadges.js';
+import { getCompletedChallengeCounts } from '../../db/challenges.js';
 import { getLifetimeStats } from '../../db/guessGame.js';
 import { TIERS } from '../../notify/percentileTiers.js';
 import { FALLBACK_COLOR } from '../../notify/clearMessage.js';
+import { deathTierEmoji, deathFlavor } from '../../notify/deathTiers.js';
 
 const VISIBILITY_PREFIX = 'my-stats-vis:';
 const WEEKLY_RANK_MEDALS = [
@@ -19,19 +21,22 @@ const WEEKLY_RANK_MEDALS = [
   { rank: 2, emoji: '🥈' },
   { rank: 3, emoji: '🥉' },
 ];
-// Uploaded to the bot's own application emoji repository (see
-// classIcons.js for the rest of that repository) rather than pulled from
-// any one server — confirmed live that a guild emoji tag silently
-// degrades to plain `:name:` text when the bot isn't a member of that
-// emoji's home server, but application emoji have no such dependency;
-// they work in any server the bot is in. Reserved for the *top* death
-// tier now (see deathTierEmoji below) rather than used as a flat icon
-// for every death count — earns its place instead of being the default.
-const CLOWNSKULL_EMOJI = '<:clownskull:1542205122103222342>';
-
-/** One tier/rank per line so the counts are actually readable. */
-function badgeLines(entries, counts, keyOf) {
-  return entries.map((e) => `${e.emoji} **${counts[keyOf(e)]}**`).join('\n');
+// Sword/shield — the same offense/defense convention MMO UIs already lean
+// on for role icons generally, distinct from ⚔️ (Battle Record's own
+// section icon) and 🎯 (the guess-parse section's own icon) so nothing
+// clashes within the same embed.
+const CHALLENGE_TYPES = [
+  { key: 'dps', emoji: '🗡️' },
+  { key: 'support', emoji: '🛡️' },
+];
+/** Horizontal badge line: `👑 3 · 💗 5 · 🟠 12 …`. Replaced the old
+ * one-per-line layout — with three badge groups plus challenge counts the
+ * vertical version made the embed ~18 rows tall, and the distinct tier
+ * emoji + bold counts stay readable on one line. The `·` separator keeps
+ * adjacent emoji/count pairs from visually merging. Wraps naturally if a
+ * future tier list outgrows the embed width. */
+function badgeLine(entries, counts, keyOf) {
+  return entries.map((e) => `${e.emoji} **${counts[keyOf(e)]}**`).join(' · ');
 }
 
 /** '—' rather than "0%" or NaN% when nobody's guessed yet — a made-up 0%
@@ -39,27 +44,6 @@ function badgeLines(entries, counts, keyOf) {
 function formatWinRate(correct, total) {
   if (total === 0) return '-';
   return `${Math.round((correct / total) * 100)}%`;
-}
-
-// The icon itself escalates with the tier, not just the text next to it —
-// starts at a plain/normal skull (everyone dies sometimes) and upgrades
-// through progressively more dramatic ones, with the custom clownskull
-// held back as the top tier's payoff rather than spent on every count.
-function deathTierEmoji(count) {
-  if (count === 0) return '🏆';
-  if (count <= 5) return '💀';
-  if (count <= 15) return '☠️';
-  return CLOWNSKULL_EMOJI;
-}
-
-// Purely cosmetic tiered commentary — thresholds are loose, tone is
-// teasing, not literal judgment. Every one of these is a short flavor
-// string next to a real number, never a replacement for it.
-function deathFlavor(count) {
-  if (count === 0) return 'Untouchable 😎';
-  if (count <= 5) return 'Had a rough week';
-  if (count <= 15) return 'Certified feeder';
-  return 'The floor is a second home';
 }
 
 function busFlavor(count) {
@@ -96,18 +80,35 @@ function buildRoastFooter({ diedCount, busCount, correctGuesses, totalGuesses })
   return '🤝 A perfectly respectable raider. Nothing more to see here.';
 }
 
-/** Weekly guess-parse leaderboard placements — deliberately its own field,
- * not merged into the percentile-tier Raid Badges above (different game,
- * different achievement). See guessLeaderboardBadges.js. Guess-Parse Stats
- * (win rate / total guesses) is a third, separate axis again — an unbounded
- * getLifetimeStats() query (no time filter, unlike the weekly leaderboard),
- * so it's a permanent record never reset by the weekly leaderboard wipe. */
+/** Layout: exactly three blocks.
+ *
+ *   ⚔️ Battle Record (inline)  |  🎯 Guess-Parse (inline)
+ *   🎖️ Badges (full width)
+ *
+ * Two inline fields side-by-side render reliably on desktop and stack
+ * cleanly on mobile — it's the *third* inline field (and the old
+ * zero-width-spacer alignment trick) that Discord's embed grid handles
+ * unpredictably, which is what produced the floating Challenge Badges
+ * block in the previous 2-inline-plus-1-full-width layout. Every future
+ * stat now has an obvious home in one of the three blocks instead of
+ * needing a new field.
+ *
+ * Guess-Parse merges the lifetime stats and the weekly leaderboard medals
+ * into one visual block, but they remain distinct data axes: win rate /
+ * total guesses come from an unbounded getLifetimeStats() query (no time
+ * filter — a permanent record never reset by the weekly leaderboard wipe),
+ * while the medals come from guessLeaderboardBadges.js weekly placements.
+ * The explicit "Weekly podiums" label on the medal line is what keeps that
+ * distinction legible now that they share a field. */
 async function buildMyStatsEmbed(linkedAccountId, discordUserId, guildId, user) {
-  const [{ total, diedCount, tierCounts, belowMinDpsCount, busCount }, weeklyBadgeCounts, guessStats] = await Promise.all([
-    getAggregateStats(linkedAccountId, guildId, TIERS),
-    getBadgeCounts(guildId, discordUserId),
-    getLifetimeStats(guildId, discordUserId),
-  ]);
+  const [{ total, diedCount, tierCounts, belowMinDpsCount, busCount }, weeklyBadgeCounts, guessStats, estimatedGold, challengeCounts] =
+    await Promise.all([
+      getAggregateStats(linkedAccountId, guildId, TIERS),
+      getBadgeCounts(guildId, discordUserId),
+      getLifetimeStats(guildId, discordUserId),
+      getEstimatedGoldForAccount(linkedAccountId, guildId),
+      getCompletedChallengeCounts(linkedAccountId, guildId),
+    ]);
 
   const { correct_guesses: correctGuesses, total_guesses: totalGuesses } = guessStats;
   const winRateFlavorText = winRateFlavor(correctGuesses, totalGuesses);
@@ -119,25 +120,43 @@ async function buildMyStatsEmbed(linkedAccountId, discordUserId, guildId, user) 
         .setThumbnail(user.displayAvatarURL())
         .addFields(
           {
-            // Both this and Guess-Parse Stats below are non-inline and
-            // placed first — each forces its own row, so the reading order
-            // is battle record, then guess-parse stats, then the badges
-            // row, rather than description text floating above everything.
             name: '⚔️ Battle Record',
             value:
               `Total gates cleared: **${total}**\n` +
+              // Estimated, not real — lostark.bible's logs have no gold
+              // field at all (see goldEstimate.js); this is "what
+              // Gold-Earner-designated characters' clears would be worth,
+              // capped at 3 families/week" per getEstimatedGoldForAccount.
+              // Just the total here (not the character/roster/unbound
+              // split /character-page shows) — this is the pooled,
+              // multi-character view, where a per-type breakdown would be
+              // more clutter than signal. Placed right after the clear
+              // count, ahead of deaths/bus/DPS — same positioning as
+              // /character-page's Est. Gold line.
+              `🪙 Total Est. Gold: **${estimatedGold.total.toLocaleString('en-US')}**\n` +
               `${deathTierEmoji(diedCount)} **${diedCount}** - ${deathFlavor(diedCount)}\n` +
               `🚌 **${busCount}** - ${busFlavor(busCount)}\n` +
               `⚠️ **${belowMinDpsCount}** below Min DPS`,
           },
           {
-            name: '🎯 Guess-Parse Stats',
+            name: '🎯 Guess-Parse',
             value:
               `Win Rate: **${formatWinRate(correctGuesses, totalGuesses)}**${winRateFlavorText ? ` - ${winRateFlavorText}` : ''}\n` +
-              `Total Guesses: **${totalGuesses}**`,
+              `Guesses: **${totalGuesses}**\n` +
+              `Weekly podiums: ${badgeLine(WEEKLY_RANK_MEDALS, weeklyBadgeCounts, (m) => m.rank)}`,
           },
-          { name: '🎖️ Raid Badges', value: badgeLines(TIERS, tierCounts, (t) => t.key), inline: true },
-          { name: '🏆 Guess-Parse Badges', value: badgeLines(WEEKLY_RANK_MEDALS, weeklyBadgeCounts, (m) => m.rank), inline: true },
+          {
+            // Only counts `completed` challenges, same "badges are
+            // achievements, not participation" rule the Raid line follows
+            // — a failed/abandoned challenge earns nothing here. See
+            // getCompletedChallengeCounts' comment for why this groups by
+            // the challenge's own stored role rather than the character's.
+            name: '🎖️ Badges',
+            value:
+              `Raid: ${badgeLine(TIERS, tierCounts, (t) => t.key)}\n` +
+              `Challenge: ${badgeLine(CHALLENGE_TYPES, challengeCounts, (t) => t.key)}`,
+            inline: false,
+          },
         )
         .setColor(FALLBACK_COLOR)
         .setFooter({ text: buildRoastFooter({ diedCount, busCount, correctGuesses, totalGuesses }) }),
@@ -159,10 +178,10 @@ export const myStatsCommand = {
       return;
     }
 
-    // No early return on zero clears — Guess-Parse Badges (the weekly
-    // leaderboard field) come from guessLeaderboardBadges.js, entirely
-    // unrelated to clear_history, so someone with real clears not yet
-    // logged (or none at all) can still have those to show.
+    // No early return on zero clears — the weekly guess-parse medals come
+    // from guessLeaderboardBadges.js, entirely unrelated to clear_history,
+    // so someone with real clears not yet logged (or none at all) can
+    // still have those to show.
     const buttons = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`${VISIBILITY_PREFIX}self`).setLabel('Only me').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()

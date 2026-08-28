@@ -32,6 +32,21 @@ export const RAID_FAMILIES = [
     // encounter, not a numbered sequence — so the friendly name is just
     // the label with no "Gate N" suffix. See getFriendlyBossName().
     hideGateNumber: true,
+    // Confirmed via patch notes (RAID_DATA.md): Extreme raid gold is paid
+    // "regardless of Gold-Earner status" and doesn't consume any of the
+    // weekly 3-family cap — see ALWAYS_PAYS_GOLD_FAMILY_KEYS below and
+    // getEstimatedGold() in clearHistory.js, which both need this flag to
+    // treat Extreme clears as always-counted rather than competing for one
+    // of a gold-earner character's 3 weekly slots.
+    alwaysPaysGold: true,
+    // Ordered easiest -> hardest — used by challengeRaids.js to find the
+    // hardest difficulty a given gear score qualifies for. Every family
+    // below has one of these; see the file-level comment for why it's a
+    // flat explicit list rather than derived from the gates' alias
+    // `difficulties` restrictions (those exist to disambiguate a *shared*
+    // boss name, not to enumerate a family's full difficulty set — several
+    // gates have no restriction at all, i.e. apply to every difficulty).
+    difficulties: ['Extreme Normal', 'Extreme Hard', 'Extreme Nightmare'],
     // Same boss name as regular Aegir Gate 2 below, but a separate weekly
     // clear — see the file-level comment on why this needs the
     // difficulty-restricted alias form instead of a plain string.
@@ -46,6 +61,9 @@ export const RAID_FAMILIES = [
     // boss ("Phantom Manifester Brelshaza"), no Extreme equivalent of Gate
     // 1 ("Narok the Butcher").
     hideGateNumber: true,
+    // See aegir-extreme's identical comment above.
+    alwaysPaysGold: true,
+    difficulties: ['Extreme Normal', 'Extreme Hard', 'Extreme Nightmare'],
     // Same boss name as regular Brelshaza Gate 2 below, but a separate
     // weekly clear — see the file-level comment on why this needs the
     // difficulty-restricted alias form instead of a plain string.
@@ -56,26 +74,50 @@ export const RAID_FAMILIES = [
   {
     key: 'cathedral',
     label: 'Cathedral',
+    // Confirmed via patch notes (RAID_DATA.md): Cathedral's gold is 100%
+    // Character-Bound, unlike every other tracked raid (50/50 Roster/
+    // Unbound) — see CHARACTER_BOUND_GOLD_FAMILY_KEYS below and
+    // splitGold() in goldEstimate.js, which use this flag to classify a
+    // clear's gold type at aggregation time without needing to store the
+    // split per-row.
+    paysCharacterBoundGold: true,
+    difficulties: ['Level 1', 'Level 2', 'Level 3'],
     gates: [['Archbishop Arcenos'], ['Arcenos, Vanguard of Fanaticism']],
   },
   {
     key: 'serca',
     label: 'Serca',
+    difficulties: ['Normal', 'Hard', 'Nightmare'],
     gates: [['Witch of Agony, Serca'], ['Corvus Tul Rak']],
   },
   {
     key: 'kazeros',
     label: 'Kazeros',
-    gates: [['Abyss Lord Kazeros'], ['Death Incarnate Kazeros', 'Archdemon Kazeros']],
+    difficulties: ['Normal', 'Hard'],
+    // Both aliases used to be unrestricted plain strings — harmless for
+    // getRaidFamilyForBoss (any alias identifies the gate regardless of
+    // which one matched), but wrong for getBossNameForGateAtDifficulty
+    // (would always pick whichever came first, ignoring the requested
+    // difficulty). Restricted now that a difficulty -> name direction
+    // actually needs to be correct (challengeRaids.js).
+    gates: [
+      ['Abyss Lord Kazeros'],
+      [
+        { name: 'Death Incarnate Kazeros', difficulties: ['Hard'] },
+        { name: 'Archdemon Kazeros', difficulties: ['Normal'] },
+      ],
+    ],
   },
   {
     key: 'armoche',
     label: 'Armoche',
+    difficulties: ['Normal', 'Hard'],
     gates: [['Brelshaza, Ember in the Ashes'], ['Armoche, Sentinel of the Abyss']],
   },
   {
     key: 'mordum',
     label: 'Mordum',
+    difficulties: ['Normal', 'Hard'],
     gates: [
       ['Infernas'],
       ['Blossoming Fear, Naitreya'],
@@ -85,6 +127,7 @@ export const RAID_FAMILIES = [
   {
     key: 'brelshaza',
     label: 'Brelshaza',
+    difficulties: ['Normal', 'Hard'],
     // Not the same raid as "Brelshaza, Ember in the Ashes" above (that's
     // Armoche Gate 1) — the game reused the name for a different raid.
     // Gate 2's boss name is shared with Brelshaza Extreme (separate family
@@ -98,6 +141,7 @@ export const RAID_FAMILIES = [
   {
     key: 'aegir',
     label: 'Aegir',
+    difficulties: ['Normal', 'Hard'],
     // Akkan is back as Gate 1 for Normal/Hard (2/2 total) — this used to be
     // just Gate 2 while Akkan was excluded from a limited-time event
     // window; see git history for that state if it ever needs restoring.
@@ -133,6 +177,20 @@ for (const family of RAID_FAMILIES) {
 // needs to pass this.
 export const ALL_KNOWN_BOSSES = [...CANDIDATES_BY_BOSS.keys()];
 
+/** Family keys whose gold always counts toward the estimated-gold stat,
+ * regardless of Gold-Earner status or the weekly 3-family cap — see the
+ * `alwaysPaysGold` comment on aegir-extreme/brelshaza-extreme above. */
+export const ALWAYS_PAYS_GOLD_FAMILY_KEYS = new Set(
+  RAID_FAMILIES.filter((f) => f.alwaysPaysGold).map((f) => f.key),
+);
+
+/** Family keys whose gold is 100% Character-Bound rather than the usual
+ * 50/50 Roster/Unbound split — see the `paysCharacterBoundGold` comment on
+ * cathedral above. */
+export const CHARACTER_BOUND_GOLD_FAMILY_KEYS = new Set(
+  RAID_FAMILIES.filter((f) => f.paysCharacterBoundGold).map((f) => f.key),
+);
+
 /**
  * Which raid family (and which of its gates) a boss name belongs to.
  * `difficulty` is required to disambiguate the rare case of a boss name
@@ -145,6 +203,25 @@ export function getRaidFamilyForBoss(bossName, difficulty) {
   if (!candidates) return null;
   const match = candidates.find((c) => c.difficulties === null || c.difficulties.includes(difficulty));
   return match ? { family: match.family, gateIndex: match.gateIndex } : null;
+}
+
+/** The boss name a gate actually goes by at a specific difficulty — needed
+ * by challengeRaids.js/challenge.js to know which boss name to query
+ * lostark.bible's logs for at a specific difficulty, since some gates
+ * rename their boss per difficulty (see the file-level comment). Picks the
+ * alias whose `difficulties` restriction includes the target difficulty,
+ * or the first unrestricted (plain-string) alias if there's no
+ * difficulty-specific one. Returns null if the gate genuinely doesn't have
+ * a name for that difficulty (shouldn't happen for any difficulty in the
+ * family's own `difficulties` list, but defensive either way). */
+export function getBossNameForGateAtDifficulty(family, gateIndex, difficulty) {
+  const aliases = family.gates[gateIndex];
+  if (!aliases) return null;
+  for (const alias of aliases) {
+    const { name, difficulties } = typeof alias === 'string' ? { name: alias, difficulties: null } : alias;
+    if (difficulties === null || difficulties.includes(difficulty)) return name;
+  }
+  return null;
 }
 
 /** Friendlier "{Raid} Gate {N}" label for a boss name (e.g. "Archbishop

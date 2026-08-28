@@ -8,7 +8,35 @@ import { RAID_FAMILIES, getRaidFamilyForBoss } from '../../notify/raidFamilies.j
 import { lastWednesdayReset } from '../../notify/raidWeek.js';
 import { getClassEmoji } from '../../notify/classIcons.js';
 import { formatStat } from '../../notify/clearMessage.js';
+import { classifyClearGold, sumTopFamilies } from '../../notify/goldEstimate.js';
+import { getGoldEarnerKeySet } from '../../db/goldEarners.js';
 import { sleep } from '../../utils/sleep.js';
+
+const GOLD_EARNER_BADGE = '🪙';
+
+/** Same estimate/rules as clearHistory.js's getEstimatedGold, applied to a
+ * live batch of this-week's entries instead of stored clear_history rows —
+ * this command already fetches "since reset" entries fresh every run, so
+ * there's no need to round-trip through the DB for a single week's total.
+ * Returns 0 for a non-earner (their Extreme clears still count — see
+ * classifyClearGold's alwaysCounts). */
+function weeklyGoldForCharacter(entries, isGoldEarner) {
+  const familyTotals = new Map();
+  let alwaysCounted = 0;
+
+  for (const entry of entries) {
+    const classified = classifyClearGold(entry);
+    if (!classified) continue;
+    if (classified.alwaysCounts) {
+      alwaysCounted += classified.gold;
+    } else {
+      familyTotals.set(classified.familyKey, (familyTotals.get(classified.familyKey) ?? 0) + classified.gold);
+    }
+  }
+
+  const cappedTotal = isGoldEarner ? sumTopFamilies(familyTotals.values()) : 0;
+  return alwaysCounted + cappedTotal;
+}
 
 // Same pacing poller.js uses between characters — /bonk fires one burst of
 // requests per invocation (unlike the poller's already-spread-out 10-minute
@@ -24,9 +52,14 @@ function emojiTag(classNameOrIconKey) {
 }
 
 /** One embed field per character: class icon + name as the header, raid
- * progress as a monospace table in the value so the columns line up. */
-function buildCharacterField(characterName, className, gearScore, clearedGatesByFamily) {
-  const header = `${emojiTag(className)} ${characterName} (iLvl: ${formatStat(gearScore)})`.trim();
+ * progress as a monospace table in the value so the columns line up.
+ * `isGoldEarner` adds a 🪙 badge to the header — purely an identity marker
+ * (this character's clears count toward the weekly gold total below), not
+ * a number itself; see weeklyGoldForCharacter/the footer for the actual
+ * estimate. */
+function buildCharacterField(characterName, className, gearScore, clearedGatesByFamily, isGoldEarner) {
+  const badge = isGoldEarner ? ` ${GOLD_EARNER_BADGE}` : '';
+  const header = `${emojiTag(className)} ${characterName}${badge} (iLvl: ${formatStat(gearScore)})`.trim();
 
   const rows = RAID_FAMILIES.filter((family) => clearedGatesByFamily.has(family.key)).map((family) => ({
     label: family.label,
@@ -70,10 +103,12 @@ export const bonkCommand = {
 
     const accessToken = decryptToken(account.access_token);
     const boundaryMs = lastWednesdayReset().getTime();
+    const earnerKeySet = await getGoldEarnerKeySet(account.id);
 
     // Gathered first, then sorted by iLvl before building fields — gearScore
     // isn't known until the logs come back, so it can't sort while fetching.
     const results = [];
+    let weeklyGoldTotal = 0;
     for (const { character_name: name, region } of characters) {
       let entries;
       try {
@@ -103,7 +138,10 @@ export const bonkCommand = {
 
       if (clearedGatesByFamily.size === 0) continue; // clears happened, but none matched a known raid family
 
-      results.push({ name, gearScore: entries[0].gearScore, class: entries[0].class, clearedGatesByFamily });
+      const isGoldEarner = earnerKeySet.has(`${name}|${region}`);
+      weeklyGoldTotal += weeklyGoldForCharacter(entries, isGoldEarner);
+
+      results.push({ name, gearScore: entries[0].gearScore, class: entries[0].class, clearedGatesByFamily, isGoldEarner });
     }
 
     if (results.length === 0) {
@@ -114,7 +152,7 @@ export const bonkCommand = {
     results.sort((a, b) => b.gearScore - a.gearScore); // highest iLvl first
 
     const fields = results.map((r) =>
-      buildCharacterField(r.name, r.class, r.gearScore, r.clearedGatesByFamily),
+      buildCharacterField(r.name, r.class, r.gearScore, r.clearedGatesByFamily, r.isGoldEarner),
     );
 
     const resetLabel = lastWednesdayReset().toLocaleDateString('en-US', {
@@ -123,12 +161,17 @@ export const bonkCommand = {
       day: 'numeric',
     });
 
+    // Consolidated across every character shown above — same estimate rules
+    // as /my-stats (gold-earner-only + weekly 3-family cap, Extreme always
+    // counts), just for this one week instead of a lifetime total.
+    const goldLabel = `🪙 Est. weekly gold: ${weeklyGoldTotal.toLocaleString('en-US')}`;
+
     const embed = new EmbedBuilder()
       .setTitle(`${targetUser.username}'s Roster Status`)
       .setThumbnail(targetUser.displayAvatarURL())
       .addFields(fields)
       .setColor(0x5865f2)
-      .setFooter({ text: `Since ${resetLabel} reset` });
+      .setFooter({ text: `Since ${resetLabel} reset • ${goldLabel}` });
 
     await interaction.editReply({ embeds: [embed] });
   },

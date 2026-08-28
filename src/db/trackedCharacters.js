@@ -132,6 +132,57 @@ export async function listByLinkedAccountAndGuild(linkedAccountId, guildId) {
   return rows;
 }
 
+/** Same account+guild scoping as listByLinkedAccountAndGuild, but
+ * competitive-view only and includes gear_score/role/access_token — what
+ * /gold-earners' challenge picker (/challenge) needs to both rank raids by
+ * gear score and query lostark.bible for recent parses. compact-view
+ * characters are excluded since they have no role/stat data to challenge
+ * against in the first place (same reasoning /character-page blocks them
+ * for). */
+export async function listCompetitiveByLinkedAccountAndGuild(linkedAccountId, guildId) {
+  const { rows } = await pool.query(
+    `select tc.id, tc.character_name, tc.region, tc.class_name, tc.role, tc.gear_score,
+            la.access_token, la.token_expires_at, la.status as account_status
+     from tracked_characters tc
+     join linked_accounts la on la.id = tc.linked_account_id
+     where tc.linked_account_id = $1 and tc.guild_id = $2 and tc.enabled = true and tc.view_mode = 'competitive'
+     order by tc.character_name`,
+    [linkedAccountId, guildId],
+  );
+  return rows;
+}
+
+/** Same fields as listCompetitiveByLinkedAccountAndGuild, but ownership-
+ * scoped by Discord user id and a single row by id — what /challenge's
+ * Reroll/Accept buttons use, since their customId only has room for the
+ * tracked_characters id (not also a linked_account_id) and still needs an
+ * ownership check before acting (same reasoning getByIdForDiscordUser
+ * exists for /character-page's visibility-button step). */
+export async function getCompetitiveByIdForDiscordUser(trackedCharacterId, discordUserId) {
+  const { rows } = await pool.query(
+    `select tc.id, tc.character_name, tc.region, tc.class_name, tc.role, tc.gear_score,
+            la.access_token, la.token_expires_at, la.status as account_status
+     from tracked_characters tc
+     join linked_accounts la on la.id = tc.linked_account_id
+     where tc.id = $1 and la.discord_user_id = $2 and tc.view_mode = 'competitive'`,
+    [trackedCharacterId, discordUserId],
+  );
+  return rows[0] ?? null;
+}
+
+/** Unscoped, minimal — just the two display fields poller.js's challenge
+ * timeout-failure announcement needs (no `entry` to read them off of,
+ * since nothing was actually cleared). Not ownership-checked since this is
+ * only ever called from the poller's own internal side, never in response
+ * to a user's interaction. */
+export async function getNameAndClassById(trackedCharacterId) {
+  const { rows } = await pool.query(
+    'select character_name, class_name from tracked_characters where id = $1',
+    [trackedCharacterId],
+  );
+  return rows[0] ?? null;
+}
+
 /** Ownership-scoped lookup — used before showing anything derived from a
  * specific tracked_characters row, so a user can only ever act on their own. */
 export async function getByIdForOwner(id, linkedAccountId) {

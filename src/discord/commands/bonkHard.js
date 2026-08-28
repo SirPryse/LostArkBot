@@ -9,7 +9,32 @@ import { RAID_FAMILIES, getRaidFamilyForBoss } from '../../notify/raidFamilies.j
 import { lastWednesdayReset } from '../../notify/raidWeek.js';
 import { getClassEmoji } from '../../notify/classIcons.js';
 import { formatStat } from '../../notify/clearMessage.js';
+import { classifyClearGold, sumTopFamilies } from '../../notify/goldEstimate.js';
+import { getGoldEarnerKeySet } from '../../db/goldEarners.js';
 import { sleep } from '../../utils/sleep.js';
+
+const GOLD_EARNER_BADGE = '🪙';
+
+/** Same as bonk.js's identical helper — kept duplicated rather than shared,
+ * matching how the rest of this file's helpers already mirror bonk.js's
+ * (buildCharacterField, emojiTag, etc. are separate copies, not imports). */
+function weeklyGoldForCharacter(entries, isGoldEarner) {
+  const familyTotals = new Map();
+  let alwaysCounted = 0;
+
+  for (const entry of entries) {
+    const classified = classifyClearGold(entry);
+    if (!classified) continue;
+    if (classified.alwaysCounts) {
+      alwaysCounted += classified.gold;
+    } else {
+      familyTotals.set(classified.familyKey, (familyTotals.get(classified.familyKey) ?? 0) + classified.gold);
+    }
+  }
+
+  const cappedTotal = isGoldEarner ? sumTopFamilies(familyTotals.values()) : 0;
+  return alwaysCounted + cappedTotal;
+}
 
 // Same pacing poller.js uses between characters — this command fires one
 // burst of requests per invocation, so it's just as exposed to lostark.bible's
@@ -28,9 +53,10 @@ function emojiTag(classNameOrIconKey) {
  * line up. Only families with actual progress are listed — no 0/N rows.
  * Characters with zero progress anywhere don't get a field from this at
  * all; see buildNoClearsField() for how they're shown instead. */
-function buildCharacterField(characterName, className, gearScore, clearedGatesByFamily) {
+function buildCharacterField(characterName, className, gearScore, clearedGatesByFamily, isGoldEarner) {
   const gearScoreLabel = gearScore === null ? 'N/A' : formatStat(gearScore);
-  const header = `${emojiTag(className)} ${characterName} (iLvl: ${gearScoreLabel})`.trim();
+  const badge = isGoldEarner ? ` ${GOLD_EARNER_BADGE}` : '';
+  const header = `${emojiTag(className)} ${characterName}${badge} (iLvl: ${gearScoreLabel})`.trim();
 
   const rows = RAID_FAMILIES.filter((family) => clearedGatesByFamily.has(family.key)).map((family) => ({
     label: family.label,
@@ -48,7 +74,9 @@ function buildCharacterField(characterName, className, gearScore, clearedGatesBy
  * the "hard mode" difference from /bonk: they're still shown by name, just
  * without the noise of a full 0/N table. */
 function buildNoClearsField(results) {
-  const names = results.map((r) => `${emojiTag(r.class)} ${r.name}`.trim()).join(', ');
+  const names = results
+    .map((r) => `${emojiTag(r.class)} ${r.name}${r.isGoldEarner ? ` ${GOLD_EARNER_BADGE}` : ''}`.trim())
+    .join(', ');
   return { name: `No Clears This Week (${results.length})`, value: names, inline: false };
 }
 
@@ -83,6 +111,7 @@ export const bonkHardCommand = {
 
     const accessToken = decryptToken(account.access_token);
     const boundaryMs = lastWednesdayReset().getTime();
+    const earnerKeySet = await getGoldEarnerKeySet(account.id);
 
     // Character-with-zero-clears-ever fallback source: getRosters() reflects
     // the live in-game roster (class/ilvl), independent of raid-clear
@@ -106,6 +135,7 @@ export const bonkHardCommand = {
     // Gathered first, then sorted by iLvl before building fields — gearScore
     // isn't known until the logs come back, so it can't sort while fetching.
     const results = [];
+    let weeklyGoldTotal = 0;
     for (const { character_name: name, region } of characters) {
       let entries;
       try {
@@ -146,7 +176,10 @@ export const bonkHardCommand = {
         }
       }
 
-      results.push({ name, gearScore, class: className, clearedGatesByFamily });
+      const isGoldEarner = earnerKeySet.has(`${name}|${region}`);
+      weeklyGoldTotal += weeklyGoldForCharacter(entries, isGoldEarner);
+
+      results.push({ name, gearScore, class: className, clearedGatesByFamily, isGoldEarner });
     }
 
     if (results.length === 0) {
@@ -161,7 +194,7 @@ export const bonkHardCommand = {
     const withoutProgress = results.filter((r) => r.clearedGatesByFamily.size === 0);
 
     const fields = withProgress.map((r) =>
-      buildCharacterField(r.name, r.class, r.gearScore, r.clearedGatesByFamily),
+      buildCharacterField(r.name, r.class, r.gearScore, r.clearedGatesByFamily, r.isGoldEarner),
     );
     if (withoutProgress.length > 0) {
       fields.push(buildNoClearsField(withoutProgress));
@@ -173,12 +206,15 @@ export const bonkHardCommand = {
       day: 'numeric',
     });
 
+    // Same consolidated-across-every-character total as /bonk's footer.
+    const goldLabel = `🪙 Est. weekly gold: ${weeklyGoldTotal.toLocaleString('en-US')}`;
+
     const embed = new EmbedBuilder()
       .setTitle(`${targetUser.username}'s Roster Status (full)`)
       .setThumbnail(targetUser.displayAvatarURL())
       .addFields(fields)
       .setColor(0x5865f2)
-      .setFooter({ text: `Since ${resetLabel} reset` });
+      .setFooter({ text: `Since ${resetLabel} reset • ${goldLabel}` });
 
     await interaction.editReply({ embeds: [embed] });
   },

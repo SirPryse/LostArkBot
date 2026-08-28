@@ -10,10 +10,11 @@ import {
 } from 'discord.js';
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
 import { listByLinkedAccountAndGuild, getByIdForOwner, getByIdForDiscordUser } from '../../db/trackedCharacters.js';
-import { getStats } from '../../db/clearHistory.js';
+import { getStats, getEstimatedGoldForCharacter } from '../../db/clearHistory.js';
 import { getClassIconPath } from '../../notify/classIcons.js';
-import { TIERS } from '../../notify/percentileTiers.js';
+import { TIERS, formatPercentile } from '../../notify/percentileTiers.js';
 import { SUPPORT_COLOR, DPS_COLOR, FALLBACK_COLOR, formatStat } from '../../notify/clearMessage.js';
+import { deathTierEmoji, deathFlavor } from '../../notify/deathTiers.js';
 
 const SELECT_PREFIX = 'character-page-select:';
 const VISIBILITY_PREFIX = 'character-page-vis:';
@@ -30,7 +31,8 @@ function badgeLines(counts) {
 }
 
 async function buildCharacterPageEmbed(row) {
-  const { total, diedCount, tierCounts, contributionTierCounts } = await getStats(row.id, TIERS);
+  const [{ total, diedCount, tierCounts, contributionTierCounts, avgPercentile, avgContributionPercentile }, estimatedGold] =
+    await Promise.all([getStats(row.id, TIERS), getEstimatedGoldForCharacter(row.id)]);
 
   const color = row.role === 'support' ? SUPPORT_COLOR : row.role === 'dps' ? DPS_COLOR : FALLBACK_COLOR;
   const iconPath = getClassIconPath(row.class_name);
@@ -38,13 +40,20 @@ async function buildCharacterPageEmbed(row) {
 
   // Supports get Uptime and Contribution badges tracked separately — they're
   // distinct percentile metrics — shown side by side. DPS only ever has one.
+  // Average line up top in each field — the tier counts show *how many*
+  // landed in each bracket, the average shows *where they typically land*,
+  // both derived from the same stored percentile column (no new API calls).
   const badgeFields =
     row.role === 'support'
       ? [
-          { name: 'Uptime Badges', value: badgeLines(tierCounts), inline: true },
-          { name: 'Contribution Badges', value: badgeLines(contributionTierCounts), inline: true },
+          { name: 'Uptime Badges', value: `Average: ${formatPercentile(avgPercentile)}\n${badgeLines(tierCounts)}`, inline: true },
+          {
+            name: 'Contribution Badges',
+            value: `Average: ${formatPercentile(avgContributionPercentile)}\n${badgeLines(contributionTierCounts)}`,
+            inline: true,
+          },
         ]
-      : [{ name: 'Badges', value: badgeLines(tierCounts), inline: false }];
+      : [{ name: 'Badges', value: `Average: ${formatPercentile(avgPercentile)}\n${badgeLines(tierCounts)}`, inline: false }];
 
   const embed = new EmbedBuilder()
     .setTitle(`${row.character_name} the ${row.class_name}`)
@@ -53,7 +62,25 @@ async function buildCharacterPageEmbed(row) {
         `Gear Score: **${formatOptionalStat(row.gear_score)}**\n` +
         `Combat Power: **${formatOptionalStat(row.combat_power)}**\n` +
         `Total gates cleared: **${total}**\n` +
-        `Died in **${diedCount}** raid${diedCount === 1 ? '' : 's'}`,
+        // Same tiered emoji + flavor treatment as /my-stats' Battle Record
+        // (deathTiers.js) instead of the old plain "Died in N raids" line —
+        // one shared death-tier system across both commands now.
+        `${deathTierEmoji(diedCount)} **${diedCount}** - ${deathFlavor(diedCount)}\n` +
+        // Same estimate as /my-stats' Battle Record, but broken out by gold
+        // type here since this is the single-character view — a per-type
+        // split is exactly what matters when deciding what a specific
+        // character's gold can actually be spent on (Character/Roster gold
+        // can't leave that character/roster; Unbound can go anywhere,
+        // including the market). See getEstimatedGoldForCharacter's
+        // comment in clearHistory.js for how the split itself is derived.
+        `🪙 Est. Gold: **${estimatedGold.total.toLocaleString('en-US')}**\n` +
+        // Discord embeds don't honor literal spaces/tabs for indentation —
+        // "> " (blockquote) is the actual way to get a real visual indent
+        // (a left margin bar), and consecutive quoted lines merge into one
+        // block, which reads as "these 3 are sub-items of Est. Gold above".
+        `> Character: **${estimatedGold.character.toLocaleString('en-US')}**\n` +
+        `> Roster: **${estimatedGold.roster.toLocaleString('en-US')}**\n` +
+        `> Unbound: **${estimatedGold.unbound.toLocaleString('en-US')}**`,
     )
     .addFields(badgeFields)
     .setColor(color);

@@ -68,13 +68,79 @@ Powers the badge tally on that command and /my-stats' Battle Record field.
 | `died`                     | from the clear's `isDead` flag                             |
 | `below_min_dps`            | whether the clear's `dps` fell under `minDps.js`'s threshold — **nullable**: null means "not applicable" (a support clear, or no threshold defined for that boss/difficulty yet), not "met the threshold". Only ever set for DPS-role clears with a real threshold. |
 | `is_bus`                   | the clear's own `isBus` flag from lostark.bible — **nullable**: null means "recorded before this column existed", not "wasn't a bus". Never backfilled for historical rows (same as `class_name`/`gear_score` on `tracked_characters` below) — real values only exist for clears recorded after this column was added. |
+| `raid_family_key`          | which `raidFamilies.js` family this clear belongs to (e.g. `'aegir'`), looked up via `getRaidFamilyForBoss()` at record time — **nullable**, same "not applicable/not known" convention as the rest. Only used by `getEstimatedGold*()` (below) to apply the weekly 3-family gold cap. |
+| `estimated_gold`           | that gate's gold value from `src/notify/goldEstimate.js` (sourced from `RAID_DATA.md`) — **nullable**, null when no figure is known for that boss/difficulty yet. This is an *estimate*, not a real recorded amount: lostark.bible's log data has no gold field at all. |
 
-Neither the raw `dps` value nor which boss/difficulty a clear was for gets
-stored anywhere on this table — only the two booleans computed from them at
-record time. There's also no link back to the specific lostark.bible log
-entry a row came from (no `log_id`). Both mean `below_min_dps`/`is_bus`
-can't be backfilled for old rows after the fact — confirmed live when
-asked to backfill them, this is a hard limitation, not just unimplemented.
+Neither the raw `dps` value nor which boss a clear was for gets stored
+directly on this table — `raid_family_key`/`estimated_gold` above are both
+*derived* values computed once at record time (from `raidFamilies.js`/
+`goldEstimate.js`), not the raw boss/difficulty string itself. There's also
+no link back to the specific lostark.bible log entry a row came from (no
+`log_id`). All of this means `below_min_dps`/`is_bus`/`raid_family_key`/
+`estimated_gold` can't be backfilled for old rows after the fact — confirmed
+live when asked to backfill the first two, this is a hard limitation, not
+just unimplemented.
+
+## `gold_earners`
+
+**Bot-owned.** A roster can designate at most 6 characters as Gold Earners
+in-game — only their clears actually pay gold, a real per-character flag
+lostark.bible's API has no way to expose. Set via `/gold-earners`
+(`src/discord/commands/goldEarners.js`), which replaces the whole set at
+once (delete + insert in one transaction) rather than adding one at a time.
+
+| column               | notes                                                        |
+|----------------------|--------------------------------------------------------------|
+| `linked_account_id`  | FK to `linked_accounts.id`, cascades on delete                |
+| `character_name`     | not a FK to `tracked_characters` — deliberately account-scoped, not guild-scoped (see file comment on the migration for why) |
+| `region`              | `CE` or `NA`                                                 |
+
+Unique on `(linked_account_id, character_name, region)`. `getEstimatedGoldForAccount`/
+`getEstimatedGoldForCharacter` (`src/db/clearHistory.js`) join `clear_history`
+against this table to decide which clears count toward the estimated-gold
+stat on `/my-stats`/`/character-page`.
+
+## `challenges`
+
+**Bot-owned.** One row per *Accepted* `/challenge` (`src/discord/commands/challenge.js`)
+— a generated-but-not-accepted challenge is never written here at all.
+**One gate per row, not a whole raid family** — a multi-gate challenge
+could stall forever on a gate the player never re-clears (Lost Ark lets
+you skip a gate you've already cleared, which generates no fresh log entry
+at all). A character can hold multiple challenges active at once (one per
+gate); accepting a new one only abandons a still-*active* challenge for the
+exact same character + `boss_name` + `difficulty` — a genuine duplicate,
+not every other in-progress challenge (see `src/db/challenges.js`).
+
+| column                 | notes                                                     |
+|-------------------------|------------------------------------------------------------|
+| `tracked_character_id` | FK to `tracked_characters.id`, cascades on delete           |
+| `family_key`           | which `raidFamilies.js` family this gate belongs to (display/context only) |
+| `difficulty`           | the difficulty string the target was generated at           |
+| `gate_index`           | which gate within the family                                 |
+| `boss_name`            | the gate's boss name at this difficulty                      |
+| `role`                 | `dps` \| `support` — decides how `targets` is shaped          |
+| `targets`              | JSONB — `{ udps }` for DPS (un-buffed DPS, not raw `dps` — deliberately excludes whatever damage buffs the party's supports happened to be running that raid, so it stays comparable across runs), or `{ contribution, buffs: [4 nullable values] }` for support (a `null` buff slot means no historical data existed at generation time and isn't required to meet the target) |
+| `sample_size`          | how many recent clears the target was averaged from           |
+| `status`               | `active` \| `completed` \| `abandoned` \| `failed`            |
+| `met` / `met_at`       | set together once resolved either way                        |
+| `completed_at`         | set only on a real `completed`, never on a `failed`           |
+
+With exactly one gate per row, the very first matching clear fully
+resolves it one way or the other — no more "some gates done" intermediate
+state. `src/scheduler/poller.js`'s `checkChallengeProgress` checks every
+new competitive clear against the character's active challenges (matches
+at most one, since duplicates are prevented at creation), and announces
+either outcome to the guild's `/announce-channel`.
+
+**`failed` has two distinct triggers, both in `poller.js`:** a matching
+clear that *falls short* of the target fails the challenge immediately (no
+unlimited retries), and a challenge not completed by the *next* raid reset
+after it was Accepted auto-expires as failed (`expireStaleChallenges` — the
+deadline is the reset right after `created_at`, not a flat 7 days, so one
+taken right before Wednesday's reset doesn't get an almost-double-length
+window). Checked lazily every poll tick rather than via a dedicated
+scheduler.
 
 ## `raid_group_posts`
 
@@ -101,14 +167,21 @@ Owned entirely by the bot — set via the `/announce-channel` slash command by a
 server admin. The app page doesn't need Discord channel-listing permissions;
 it only needs to know a `guild_id` when writing `tracked_characters`.
 
-## `guess_game_scores`
+## `guess_attempts`
 
-**Bot-owned**, and entirely separate from raid-tracking data — this is just
-the leaderboard for the `/guess-parse` minigame (`/guess-leaderboard` reads
-it). The app page never touches this table.
+**Bot-owned**, and entirely separate from raid-tracking data — one row per
+`/guess-parse` guess attempt (right or wrong), an event log rather than a
+running counter. Both `/guess-leaderboard` (weekly, filtered by
+`created_at >= guild_settings.last_reset_at`) and `/my-stats`' lifetime
+Guess-Parse Stats (unbounded) read this same table with different time
+windows — see `src/db/guessGame.js`. Replaced the older `guess_game_scores`
+(cumulative points table) and `guess_stats` (lifetime win/loss counts)
+tables, both dropped. The app page never touches this table.
 
 | column             | notes                                                        |
 |---------------------|--------------------------------------------------------------|
-| `guild_id`          | part of the primary key, with `discord_user_id`               |
-| `discord_user_id`   | part of the primary key                                       |
-| `points`            | cumulative score — a correct guess is worth more on a harder `/guess-parse` difficulty, so this is points, not a plain win count |
+| `guild_id`          |                                                                |
+| `discord_user_id`   |                                                                |
+| `correct`           | whether this specific guess was right                        |
+| `points`            | 0 for a wrong guess; a correct guess is worth more on a harder `/guess-parse` difficulty and more for an earlier correct guesser (rank multiplier) |
+| `created_at`         | indexed with `guild_id` — this is what the weekly/lifetime windows filter on |

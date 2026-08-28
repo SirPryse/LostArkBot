@@ -16,6 +16,8 @@ import { guessLeaderboardCommand } from './commands/guessLeaderboard.js';
 import { untrackAllCommand } from './commands/untrackAll.js';
 import { leaveServerCommand } from './commands/leaveServer.js';
 import { linkAccountCommand } from './commands/linkAccount.js';
+import { goldEarnersCommand } from './commands/goldEarners.js';
+import { challengeCommand } from './commands/challenge.js';
 
 const commands = [
   announceChannelCommand,
@@ -23,6 +25,8 @@ const commands = [
   recentRaidsCommand,
   registeredUsersCommand,
   linkAccountCommand,
+  goldEarnersCommand,
+  challengeCommand,
   trackCharacterCommand,
   untrackCharacterCommand,
   characterPageCommand,
