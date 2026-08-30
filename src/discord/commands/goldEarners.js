@@ -2,6 +2,8 @@ import { SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder, Message
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
 import { listDistinctByLinkedAccount } from '../../db/trackedCharacters.js';
 import { listGoldEarners, setGoldEarners, MAX_GOLD_EARNERS } from '../../db/goldEarners.js';
+import { getClassEmoji } from '../../notify/classIcons.js';
+import { formatStat } from '../../notify/clearMessage.js';
 
 const SELECT_PREFIX = 'gold-earners-select:';
 
@@ -32,11 +34,22 @@ export const goldEarnersCommand = {
     const current = await listGoldEarners(account.id);
     const currentKeys = new Set(current.map((c) => `${c.character_name}|${c.region}`));
 
-    const options = characters.slice(0, 25).map((c) => ({
-      label: `${c.character_name} (${c.region})`,
-      value: `${c.character_name}|${c.region}`,
-      default: currentKeys.has(`${c.character_name}|${c.region}`),
-    }));
+    // Same label/description shape as /track-character's select menu (class
+    // icon + name + server + iLvl) — see listDistinctByLinkedAccount's
+    // comment for where class_name/gear_score/world come from across
+    // possibly-multiple guild rows for the same character.
+    const options = characters.slice(0, 25).map((c) => {
+      const server = c.world ? `${c.world}, ${c.region}` : c.region;
+      const gearScore = c.gear_score !== null ? Number(c.gear_score) : null;
+      const description = c.class_name ? `${c.class_name} — iLvl ${formatStat(gearScore)}` : `iLvl ${formatStat(gearScore)}`;
+      return {
+        label: `${c.character_name} (${server})`,
+        description,
+        value: `${c.character_name}|${c.region}`,
+        default: currentKeys.has(`${c.character_name}|${c.region}`),
+        emoji: c.class_name ? (getClassEmoji(c.class_name) ?? undefined) : undefined,
+      };
+    });
 
     const select = new StringSelectMenuBuilder()
       .setCustomId(`${SELECT_PREFIX}${account.id}`)

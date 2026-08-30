@@ -78,7 +78,12 @@ export const trackCharacterCommand = {
 
     const alreadyTracked = await listByLinkedAccountAndGuild(account.id, interaction.guildId);
     const trackedKeys = new Set(alreadyTracked.map((t) => `${t.character_name}|${t.region}`));
-    const characters = allCharacters.filter((c) => !trackedKeys.has(`${c.name}|${c.region}`));
+    const characters = allCharacters
+      .filter((c) => !trackedKeys.has(`${c.name}|${c.region}`))
+      // Highest iLvl first — same descending-gear-score ordering as
+      // /untrack-character's and /gold-earners' select menus, so all
+      // three list a roster the same way.
+      .sort((a, b) => (b.ilvl ?? 0) - (a.ilvl ?? 0));
 
     if (characters.length === 0) {
       await interaction.editReply('All of your characters are already tracked in this server.');

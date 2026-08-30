@@ -109,13 +109,26 @@ export async function removeAllByGuild(guildId) {
 
 /** Distinct characters an account tracks, deduped across guilds — the same
  * Lost Ark character can be tracked in multiple servers for announcements,
- * but a roster-wide check like /roster-status only needs it once. */
+ * but a roster-wide check like /roster-status only needs it once.
+ * `class_name`/`gear_score`/`world` come along too (for /gold-earners'
+ * select menu, matching /track-character's display) — a character tracked
+ * in more than one guild has one independently-refreshed row per guild, so
+ * `order by ... updated_at desc` inside the DISTINCT ON group picks
+ * whichever guild's row was polled most recently as the representative
+ * (the underlying character is the same regardless of which guild's row
+ * happens to be freshest). DISTINCT ON requires its own ORDER BY to lead
+ * with the dedup columns, so the actual display order (highest iLvl
+ * first) has to be a second pass over the deduped result in an outer
+ * query rather than one flat ORDER BY. */
 export async function listDistinctByLinkedAccount(linkedAccountId) {
   const { rows } = await pool.query(
-    `select distinct on (character_name, region) character_name, region
-     from tracked_characters
-     where linked_account_id = $1 and enabled = true
-     order by character_name, region`,
+    `select * from (
+       select distinct on (character_name, region) character_name, region, class_name, gear_score, world
+       from tracked_characters
+       where linked_account_id = $1 and enabled = true
+       order by character_name, region, updated_at desc
+     ) dedup
+     order by gear_score desc nulls last, character_name`,
     [linkedAccountId],
   );
   return rows;
@@ -123,10 +136,10 @@ export async function listDistinctByLinkedAccount(linkedAccountId) {
 
 export async function listByLinkedAccountAndGuild(linkedAccountId, guildId) {
   const { rows } = await pool.query(
-    `select id, character_name, region, view_mode, class_name
+    `select id, character_name, region, world, view_mode, class_name, gear_score
      from tracked_characters
      where linked_account_id = $1 and guild_id = $2 and enabled = true
-     order by character_name`,
+     order by gear_score desc nulls last, character_name`,
     [linkedAccountId, guildId],
   );
   return rows;

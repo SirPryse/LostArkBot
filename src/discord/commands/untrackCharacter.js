@@ -2,6 +2,7 @@ import { SlashCommandBuilder, StringSelectMenuBuilder, ActionRowBuilder, Message
 import { getByDiscordUserId } from '../../db/linkedAccounts.js';
 import { listByLinkedAccountAndGuild, remove } from '../../db/trackedCharacters.js';
 import { getClassEmoji } from '../../notify/classIcons.js';
+import { formatStat } from '../../notify/clearMessage.js';
 
 const CUSTOM_ID_PREFIX = 'untrack-character-select:';
 const MAX_OPTIONS = 25; // Discord select menu limit
@@ -26,12 +27,22 @@ export const untrackCharacterCommand = {
       return;
     }
 
-    const options = tracked.slice(0, MAX_OPTIONS).map((row) => ({
-      label: `${row.character_name} (${row.region})`,
-      description: row.class_name ?? undefined,
-      value: row.id,
-      emoji: row.class_name ? (getClassEmoji(row.class_name) ?? undefined) : undefined,
-    }));
+    // Same label/description shape as /track-character's select menu (class
+    // icon + name + server + iLvl) — both class_name and gear_score can
+    // legitimately be null for a character not yet polled even once, so
+    // iLvl always shows (as "N/A" via formatStat) while the class name
+    // prefix is simply dropped rather than showing a blank one.
+    const options = tracked.slice(0, MAX_OPTIONS).map((row) => {
+      const server = row.world ? `${row.world}, ${row.region}` : row.region;
+      const gearScore = row.gear_score !== null ? Number(row.gear_score) : null;
+      const description = row.class_name ? `${row.class_name} — iLvl ${formatStat(gearScore)}` : `iLvl ${formatStat(gearScore)}`;
+      return {
+        label: `${row.character_name} (${server})`,
+        description,
+        value: row.id,
+        emoji: row.class_name ? (getClassEmoji(row.class_name) ?? undefined) : undefined,
+      };
+    });
 
     const select = new StringSelectMenuBuilder()
       .setCustomId(`${CUSTOM_ID_PREFIX}${account.id}`)
