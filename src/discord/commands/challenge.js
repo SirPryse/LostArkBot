@@ -12,19 +12,29 @@ import {
 import { getByDiscordUserId, markNeedsReauth } from '../../db/linkedAccounts.js';
 import { listCompetitiveByLinkedAccountAndGuild, getCompetitiveByIdForDiscordUser } from '../../db/trackedCharacters.js';
 import { getGoldEarnerKeySet } from '../../db/goldEarners.js';
-import { createChallenge } from '../../db/challenges.js';
+import {
+  createChallenge,
+  getChallengeById,
+  getChallengeOwnerDiscordId,
+  setBetMessage,
+  getChallengeExclusionKeysForCharacter,
+} from '../../db/challenges.js';
+import { upsertBet, getBetCounts } from '../../db/challengeBets.js';
+import { getAnnouncementChannel } from '../../db/guildSettings.js';
 import { decryptToken } from '../../crypto/tokenCipher.js';
 import { getCharacterLogs } from '../../lostarkbible/client.js';
 import { TokenExpiredError, InsufficientScopeError } from '../../lostarkbible/errors.js';
 import { getBestRaidsForGearScore } from '../../notify/challengeRaids.js';
 import { getFriendlyBossName } from '../../notify/raidFamilies.js';
 import { getBossImagePath } from '../../notify/bossImages.js';
+import { getClassEmoji } from '../../notify/classIcons.js';
 import { formatStat } from '../../notify/clearMessage.js';
 import { sleep } from '../../utils/sleep.js';
 
 const SELECT_PREFIX = 'challenge-select:';
 const REROLL_PREFIX = 'challenge-reroll:';
 const ACCEPT_PREFIX = 'challenge-accept:';
+const BET_PREFIX = 'challenge-bet:';
 const MAX_OPTIONS = 25; // Discord select menu limit
 
 // How many recent same-difficulty clears to average for the target — "beat
@@ -151,6 +161,72 @@ function buildButtons(trackedCharacterId, bossName) {
   );
 }
 
+/** `<:name:id>` — the inline-text form of a custom emoji, same helper
+ * poller.js/bonk.js/clearMessage.js each keep their own copy of rather than
+ * share (see ARCHITECTURE.md's note on that duplication being deliberate). */
+function emojiTag(classNameOrIconKey) {
+  const emoji = getClassEmoji(classNameOrIconKey);
+  return emoji ? `<:${emoji.name}:${emoji.id}>` : '';
+}
+
+/** The Success/Failure betting buttons on a challenge's public post — the
+ * label carries the live tally so anyone glancing at the message can see
+ * how the crowd is leaning without opening anything, redrawn after every
+ * bet (see the BET_PREFIX handler) and one final time, disabled, when
+ * poller.js locks the message at resolution. */
+function buildBetButtons(challengeId, counts, disabled = false) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${BET_PREFIX}${challengeId}:success`)
+      .setLabel(`Success (${counts.success})`)
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('✅')
+      .setDisabled(disabled),
+    new ButtonBuilder()
+      .setCustomId(`${BET_PREFIX}${challengeId}:failure`)
+      .setLabel(`Failure (${counts.failure})`)
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji('❌')
+      .setDisabled(disabled),
+  );
+}
+
+/** Posts a challenge's public "place your bet" announcement once it's been
+ * Accepted, and remembers where it landed (setBetMessage) so poller.js can
+ * find and lock it later. Silently no-ops if this guild has no
+ * announcement channel configured, or if the send itself fails (e.g. the
+ * bot lost access to that channel) — betting is a bonus feature, not
+ * something that should block the Accept flow itself. */
+async function postPublicChallenge(discordClient, channelId, challenge, character) {
+  const channel = await discordClient.channels.fetch(channelId).catch(() => null);
+  if (!channel) return;
+
+  const gateLabel = getFriendlyBossName(challenge.boss_name, challenge.difficulty);
+  const namePrefix = character?.class_name ? `${emojiTag(character.class_name)} ` : '';
+  const imagePath = getBossImagePath(challenge.boss_name);
+  const imageFile = `challenge-bet-${challenge.id}${path.extname(imagePath)}`;
+  const attachment = new AttachmentBuilder(imagePath, { name: imageFile });
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🎯 CHALLENGE ACCEPTED: ${gateLabel} — ${challenge.difficulty}`)
+    .setDescription(
+      `${namePrefix}**${character?.character_name ?? 'A challenger'}** just accepted this challenge!\n\n` +
+        `${formatTargets(challenge.targets, challenge.sample_size)}\n\n` +
+        `🎲 Think they'll pull it off? Place your bet below — you can change it any time before it resolves. ` +
+        `(The challenger can't bet on themselves.)`,
+    )
+    .setThumbnail(`attachment://${imageFile}`)
+    .setColor(CHALLENGE_COLOR);
+
+  const message = await channel
+    .send({ embeds: [embed], files: [attachment], components: [buildBetButtons(challenge.id, { success: 0, failure: 0 })] })
+    .catch((err) => {
+      console.error('Failed to post public challenge announcement:', err);
+      return null;
+    });
+  if (message) await setBetMessage(challenge.id, channelId, message.id);
+}
+
 /**
  * Builds the full challenge payload for a character — one gate, not a
  * whole raid family (a multi-gate challenge could stall forever on a gate
@@ -161,8 +237,13 @@ function buildButtons(trackedCharacterId, bossName) {
  * the 3 weekly gold-earner slots this is themed around), flattened into a
  * pool of individual gates across those 3 families. `excludeBossName`
  * (Reroll's "don't just show me the same thing again") excludes just that
- * one gate, falling back to the full pool if excluding would leave nothing
- * (e.g. every candidate family has only one gate combined). Returns
+ * one gate, falling back to the full *still-available* pool if excluding
+ * would leave nothing (e.g. every candidate family has only one gate
+ * combined). Gates the character already has an active, completed, or
+ * failed challenge on are left out entirely first — always show only
+ * what's actually still worth offering, per explicit request (a completed
+ * or failed gate is decided either way, and an active one is already
+ * being worked on). Returns
  * `{ error }` or `{ embeds, files, components, pending }` — `pending` is
  * the raw structured data storePendingChallenge needs, kept separate from
  * the Discord payload itself.
@@ -179,8 +260,18 @@ async function buildChallengePayload(character, excludeBossName = null) {
   }
 
   const allGateOptions = familyCandidates.flatMap((c) => c.gates.map((gate) => ({ family: c.family, difficulty: c.difficulty, gate })));
-  const pool = excludeBossName ? allGateOptions.filter((o) => o.gate.bossName !== excludeBossName) : allGateOptions;
-  const useList = pool.length > 0 ? pool : allGateOptions;
+  const exclusionKeys = await getChallengeExclusionKeysForCharacter(character.id);
+  const availableOptions = allGateOptions.filter((o) => !exclusionKeys.has(`${o.gate.bossName}|${o.difficulty}`));
+  if (availableOptions.length === 0) {
+    return {
+      error:
+        `**${character.character_name}** already has a decided or in-progress challenge on every gate across its current ` +
+        "best raids — check back once an active one resolves, or after your best raids change.",
+    };
+  }
+
+  const pool = excludeBossName ? availableOptions.filter((o) => o.gate.bossName !== excludeBossName) : availableOptions;
+  const useList = pool.length > 0 ? pool : availableOptions;
   const { family, difficulty, gate } = useList[Math.floor(Math.random() * useList.length)];
 
   const accessToken = decryptToken(character.access_token);
@@ -359,9 +450,55 @@ export const challengeCommand = {
         // Accepting more than one challenge at once (for different gates)
         // is fine — createChallenge only replaces an existing active
         // challenge for this exact same gate, not every other one.
-        await createChallenge(pending.trackedCharacterId, pending);
+        const challenge = await createChallenge(pending.trackedCharacterId, pending);
+
+        // Posted publicly (per explicit design decision — the whole point
+        // of the bet is that other people see it and weigh in), to the same
+        // announcement channel the eventual result posts to, so the whole
+        // lifecycle of one challenge lives in that one channel.
+        const channelId = await getAnnouncementChannel(interaction.guildId);
+        if (channelId) {
+          const character = await getCompetitiveByIdForDiscordUser(pending.trackedCharacterId, interaction.user.id);
+          await postPublicChallenge(interaction.client, channelId, challenge, character);
+        }
+
         await interaction.followUp({
-          content: "✅ Challenge accepted — good luck! I'll announce it in this server's announcement channel when it's resolved.",
+          content: channelId
+            ? "✅ Challenge accepted — good luck! I've posted it publicly in this server's announcement channel so others can bet on you, and I'll announce the result there too."
+            : "✅ Challenge accepted — good luck! (No announcement channel is set up for this server, so it won't be posted publicly or bettable — run `/announce-channel` to enable that.)",
+          flags: MessageFlags.Ephemeral,
+        });
+      },
+    },
+    {
+      prefix: BET_PREFIX,
+      async handle(interaction) {
+        const [challengeId, outcome] = interaction.customId.slice(BET_PREFIX.length).split(':');
+
+        const challenge = await getChallengeById(challengeId);
+        if (!challenge) {
+          await interaction.reply({ content: 'This challenge no longer exists.', flags: MessageFlags.Ephemeral });
+          return;
+        }
+        if (challenge.status !== 'active') {
+          await interaction.reply({ content: 'This challenge has already been resolved — no more bets.', flags: MessageFlags.Ephemeral });
+          return;
+        }
+
+        const ownerDiscordId = await getChallengeOwnerDiscordId(challengeId);
+        if (ownerDiscordId === interaction.user.id) {
+          await interaction.reply({ content: "You can't bet on your own challenge!", flags: MessageFlags.Ephemeral });
+          return;
+        }
+
+        await upsertBet(challengeId, interaction.user.id, outcome);
+        const counts = await getBetCounts(challengeId);
+
+        // Redraw just the buttons with the fresh tally — embeds/attachments
+        // are left untouched since they're not part of this update payload.
+        await interaction.update({ components: [buildBetButtons(challengeId, counts)] });
+        await interaction.followUp({
+          content: `🎲 You bet **${outcome === 'success' ? '✅ Success' : '❌ Failure'}**. You can change your bet any time before this challenge resolves.`,
           flags: MessageFlags.Ephemeral,
         });
       },

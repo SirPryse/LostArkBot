@@ -72,6 +72,75 @@ export async function getCompletedChallengeCounts(linkedAccountId, guildId) {
   return counts;
 }
 
+export async function getChallengeById(challengeId) {
+  const { rows } = await pool.query('select * from challenges where id = $1', [challengeId]);
+  return rows[0] ?? null;
+}
+
+/** Who this challenge actually belongs to — needed by challenge.js's bet
+ * button to block the challenger from betting on their own challenge. Not
+ * stored directly on `challenges` (it only has tracked_character_id), so
+ * this joins out to the owning linked_accounts row the same way
+ * getCompletedChallengeCounts already does. */
+export async function getChallengeOwnerDiscordId(challengeId) {
+  const { rows } = await pool.query(
+    `select la.discord_user_id
+     from challenges c
+     join tracked_characters tc on tc.id = c.tracked_character_id
+     join linked_accounts la on la.id = tc.linked_account_id
+     where c.id = $1`,
+    [challengeId],
+  );
+  return rows[0]?.discord_user_id ?? null;
+}
+
+/** Records where a challenge's public "place your bet" post landed —
+ * called once, right after challenge.js posts it, so poller.js can later
+ * find and lock that exact message when the challenge resolves. */
+export async function setBetMessage(challengeId, channelId, messageId) {
+  await pool.query('update challenges set bet_channel_id = $2, bet_message_id = $3 where id = $1', [
+    challengeId,
+    channelId,
+    messageId,
+  ]);
+}
+
+/** Boss+difficulty combos to leave out of a fresh challenge offer for this
+ * character — anything **active** (already being worked on, no point
+ * re-offering the same thing), **completed** (done is done — a cleared
+ * challenge doesn't get offered again), or **failed** (per explicit
+ * request: a failed challenge doesn't get re-offered either, same as
+ * completed) — every decided-or-in-progress gate is off the table.
+ * `abandoned` rows are the only status left eligible again, since an
+ * abandoned challenge was replaced by a fresh accept on that exact same
+ * gate, not actually decided one way or the other. */
+export async function getChallengeExclusionKeysForCharacter(trackedCharacterId) {
+  const { rows } = await pool.query(
+    `select boss_name, difficulty from challenges
+     where tracked_character_id = $1 and status in ('active', 'completed', 'failed')`,
+    [trackedCharacterId],
+  );
+  return new Set(rows.map((r) => `${r.boss_name}|${r.difficulty}`));
+}
+
+/** Every challenge (active + resolved) across every competitive character a
+ * Discord user has tracked in this guild — /challenge-history's data
+ * source, usable on anyone (not ownership-scoped) since the whole point is
+ * letting other people look someone's challenges up. Active challenges
+ * sort first (most actionable), then resolved ones newest first. */
+export async function listChallengesForDiscordUser(discordUserId, guildId) {
+  const { rows } = await pool.query(
+    `select c.*, tc.character_name, tc.class_name
+     from challenges c
+     join tracked_characters tc on tc.id = c.tracked_character_id
+     join linked_accounts la on la.id = tc.linked_account_id
+     where la.discord_user_id = $1 and tc.guild_id = $2
+     order by (c.status = 'active') desc, c.created_at desc`,
+    [discordUserId, guildId],
+  );
+  return rows;
+}
+
 /** Resolves a challenge one way or the other — with exactly one gate per
  * challenge now, there's no more "met some, not others" intermediate
  * state: a matching clear either completes it (met) or fails it (missed),

@@ -1,10 +1,11 @@
 import path from 'node:path';
-import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import { EmbedBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { listEnabledWithAccount, updateLastSeen, getNameAndClassById } from '../db/trackedCharacters.js';
 import { markNeedsReauth } from '../db/linkedAccounts.js';
 import { getAnnouncementChannel } from '../db/guildSettings.js';
 import { recordClear } from '../db/clearHistory.js';
 import { getActiveChallengesForCharacter, resolveChallenge } from '../db/challenges.js';
+import { getBetCounts } from '../db/challengeBets.js';
 import { claim, setMessage, get as getGroupPost } from '../db/raidGroupPosts.js';
 import { getCharacterLogs } from '../lostarkbible/client.js';
 import { decryptToken } from '../crypto/tokenCipher.js';
@@ -251,6 +252,41 @@ async function postChallengeAnnouncement(discordClient, channelId, buildEmbed, b
   await channel.send({ embeds: [buildEmbed(url)], files: [file] }).catch((err) => console.error('Failed to post challenge announcement:', err));
 }
 
+/** Locks a challenge's public "place your bet" post once the challenge
+ * itself resolves — disables both buttons (no more bets on a decided
+ * outcome) and appends the final tally + result. A no-op if this challenge
+ * was never posted publicly in the first place (no announcement channel
+ * configured at Accept time — see challenge.js) or if the message/channel
+ * can no longer be found (channel deleted, message manually removed,
+ * etc.) — same "best effort, never block resolution on it" treatment
+ * postChallengeAnnouncement gives its own send. `status` is the challenge's
+ * *new* status ('completed' or 'failed'), not what's still on the stale
+ * `challenge` object passed in — that was fetched before this poll tick
+ * resolved it. */
+async function finalizeBetMessage(discordClient, challenge, status) {
+  if (!challenge.bet_channel_id || !challenge.bet_message_id) return;
+  const channel = await discordClient.channels.fetch(challenge.bet_channel_id).catch(() => null);
+  if (!channel) return;
+  const message = await channel.messages.fetch(challenge.bet_message_id).catch(() => null);
+  if (!message) return;
+
+  const counts = await getBetCounts(challenge.id);
+  const resultLine = status === 'completed' ? '🏆 Result: **✅ Success**' : '❌ Result: **Failure**';
+  const lockedButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('challenge-bet-locked:success').setLabel(`Success (${counts.success})`).setStyle(ButtonStyle.Success).setEmoji('✅').setDisabled(true),
+    new ButtonBuilder().setCustomId('challenge-bet-locked:failure').setLabel(`Failure (${counts.failure})`).setStyle(ButtonStyle.Danger).setEmoji('❌').setDisabled(true),
+  );
+
+  const existingEmbed = message.embeds[0];
+  const lockedEmbed = existingEmbed
+    ? EmbedBuilder.from(existingEmbed).addFields({ name: 'Betting closed', value: resultLine })
+    : null;
+
+  await message
+    .edit({ embeds: lockedEmbed ? [lockedEmbed] : undefined, components: [lockedButtons] })
+    .catch((err) => console.error('Failed to lock challenge bet message:', err));
+}
+
 /**
  * Fails every challenge in the list that's past its deadline — the *next*
  * raid reset after it was Accepted, not a flat 7 days, since that would
@@ -277,6 +313,7 @@ export async function expireStaleChallenges(discordClient, channelId, activeChal
     }
 
     await resolveChallenge(challenge.id, 'failed');
+    await finalizeBetMessage(discordClient, challenge, 'failed');
     const gateLabel = getFriendlyBossName(challenge.boss_name, challenge.difficulty);
     // Neither is on the challenge row itself — nothing was actually
     // cleared for a timeout failure, so there's no fresh entry to read
@@ -330,6 +367,7 @@ export async function checkChallengeProgress(discordClient, guildId, channelId, 
 
   if (met) {
     await resolveChallenge(challenge.id, 'completed');
+    await finalizeBetMessage(discordClient, challenge, 'completed');
     await postChallengeAnnouncement(
       discordClient,
       channelId,
@@ -340,6 +378,7 @@ export async function checkChallengeProgress(discordClient, guildId, channelId, 
     );
   } else {
     await resolveChallenge(challenge.id, 'failed');
+    await finalizeBetMessage(discordClient, challenge, 'failed');
     const comparison = formatAchievedVsTarget(challenge.role, challenge.targets, entry);
     await postChallengeAnnouncement(
       discordClient,

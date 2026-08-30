@@ -10,10 +10,18 @@ import { getByDiscordUserId } from '../../db/linkedAccounts.js';
 import { getAggregateStats, getEstimatedGoldForAccount } from '../../db/clearHistory.js';
 import { getBadgeCounts } from '../../db/guessLeaderboardBadges.js';
 import { getCompletedChallengeCounts } from '../../db/challenges.js';
+import { getPredictionStats } from '../../db/challengeBets.js';
 import { getLifetimeStats } from '../../db/guessGame.js';
 import { TIERS } from '../../notify/percentileTiers.js';
 import { FALLBACK_COLOR } from '../../notify/clearMessage.js';
 import { deathTierEmoji, deathFlavor } from '../../notify/deathTiers.js';
+
+// Temporarily hidden from display per explicit request — "hide for now,
+// re-enable another day and retest it". Underlying data collection
+// (died/is_bus columns, getAggregateStats' diedCount/busCount) is
+// completely untouched; this only gates what the embed/footer show, so
+// flipping this back to true is the entire re-enable.
+const SHOW_DEATH_BUS_STATS = false;
 
 const VISIBILITY_PREFIX = 'my-stats-vis:';
 const WEEKLY_RANK_MEDALS = [
@@ -69,29 +77,32 @@ function winRateFlavor(correct, total) {
  * existing tone elsewhere (guess-parse's "Wall of Shame" for wrong
  * guesses). */
 function buildRoastFooter({ diedCount, busCount, correctGuesses, totalGuesses }) {
-  if (diedCount >= 16) return `⚰️ ${diedCount} deaths and counting — the floor missed you.`;
-  if (busCount >= 16) return `🎫 ${busCount} bus rides — at this point just get a season pass.`;
-  if (diedCount >= 6) return `💀 ${diedCount} deaths this lifetime. Maybe watch a guide?`;
-  if (busCount >= 6) return `🚌 ${busCount} bus rides — the carry did the heavy lifting.`;
+  if (SHOW_DEATH_BUS_STATS) {
+    if (diedCount >= 16) return `⚰️ ${diedCount} deaths and counting — the floor missed you.`;
+    if (busCount >= 16) return `🎫 ${busCount} bus rides — at this point just get a season pass.`;
+    if (diedCount >= 6) return `💀 ${diedCount} deaths this lifetime. Maybe watch a guide?`;
+    if (busCount >= 6) return `🚌 ${busCount} bus rides — the carry did the heavy lifting.`;
+  }
   if (totalGuesses >= 5 && correctGuesses / totalGuesses < 0.3) {
     return `🎲 ${Math.round((correctGuesses / totalGuesses) * 100)}% win rate on /guess-parse — pure chaos guessing.`;
   }
-  if (diedCount === 0 && busCount === 0) return '✨ A flawless record. Suspiciously flawless.';
+  if (SHOW_DEATH_BUS_STATS && diedCount === 0 && busCount === 0) return '✨ A flawless record. Suspiciously flawless.';
   return '🤝 A perfectly respectable raider. Nothing more to see here.';
 }
 
-/** Layout: exactly three blocks.
+/** Layout: exactly four blocks.
  *
  *   ⚔️ Battle Record (inline)  |  🎯 Guess-Parse (inline)
- *   🎖️ Badges (full width)
+ *   🎲 Challenges (inline)     |  (unused inline slot)
+ *   🎖️ Raid Badges (full width)
  *
  * Two inline fields side-by-side render reliably on desktop and stack
- * cleanly on mobile — it's the *third* inline field (and the old
- * zero-width-spacer alignment trick) that Discord's embed grid handles
+ * cleanly on mobile — it's a *third* inline field on the same row (and the
+ * old zero-width-spacer alignment trick) that Discord's embed grid handles
  * unpredictably, which is what produced the floating Challenge Badges
- * block in the previous 2-inline-plus-1-full-width layout. Every future
- * stat now has an obvious home in one of the three blocks instead of
- * needing a new field.
+ * block in an earlier layout here. Challenges gets its own inline field on
+ * the *next* row instead, same two-per-row rule, rather than trying to
+ * squeeze a third field onto Battle Record/Guess-Parse's row.
  *
  * Guess-Parse merges the lifetime stats and the weekly leaderboard medals
  * into one visual block, but they remain distinct data axes: win rate /
@@ -99,19 +110,29 @@ function buildRoastFooter({ diedCount, busCount, correctGuesses, totalGuesses })
  * filter — a permanent record never reset by the weekly leaderboard wipe),
  * while the medals come from guessLeaderboardBadges.js weekly placements.
  * The explicit "Weekly podiums" label on the medal line is what keeps that
- * distinction legible now that they share a field. */
-async function buildMyStatsEmbed(linkedAccountId, discordUserId, guildId, user) {
-  const [{ total, diedCount, tierCounts, belowMinDpsCount, busCount }, weeklyBadgeCounts, guessStats, estimatedGold, challengeCounts] =
+ * distinction legible now that they share a field.
+ *
+ * Challenges follows the same "merge related-but-distinct axes into one
+ * block" pattern: the Challenge badges (dps/support gates *you've*
+ * completed, as the challenger) sit alongside Predictions/Right prediction
+ * rate (how often *you've* correctly called someone else's challenge
+ * outcome via /challenge's public bet buttons) — different roles (you as
+ * challenger vs. you as a better), same section, mirroring how Guess-Parse
+ * already blends two axes under one header. */
+export async function buildMyStatsEmbed(linkedAccountId, discordUserId, guildId, user) {
+  const [{ total, diedCount, tierCounts, belowMinDpsCount, busCount }, weeklyBadgeCounts, guessStats, estimatedGold, challengeCounts, predictionStats] =
     await Promise.all([
       getAggregateStats(linkedAccountId, guildId, TIERS),
       getBadgeCounts(guildId, discordUserId),
       getLifetimeStats(guildId, discordUserId),
       getEstimatedGoldForAccount(linkedAccountId, guildId),
       getCompletedChallengeCounts(linkedAccountId, guildId),
+      getPredictionStats(discordUserId),
     ]);
 
   const { correct_guesses: correctGuesses, total_guesses: totalGuesses } = guessStats;
   const winRateFlavorText = winRateFlavor(correctGuesses, totalGuesses);
+  const { total: totalPredictions, correct: correctPredictions } = predictionStats;
 
   return {
     embeds: [
@@ -134,8 +155,12 @@ async function buildMyStatsEmbed(linkedAccountId, discordUserId, guildId, user) 
               // count, ahead of deaths/bus/DPS — same positioning as
               // /character-page's Est. Gold line.
               `🪙 Total Est. Gold: **${estimatedGold.total.toLocaleString('en-US')}**\n` +
-              `${deathTierEmoji(diedCount)} **${diedCount}** - ${deathFlavor(diedCount)}\n` +
-              `🚌 **${busCount}** - ${busFlavor(busCount)}\n` +
+              // Hidden for now per SHOW_DEATH_BUS_STATS — see that
+              // constant's comment.
+              (SHOW_DEATH_BUS_STATS
+                ? `${deathTierEmoji(diedCount)} **${diedCount}** - ${deathFlavor(diedCount)}\n` +
+                  `🚌 **${busCount}** - ${busFlavor(busCount)}\n`
+                : '') +
               `⚠️ **${belowMinDpsCount}** below Min DPS`,
           },
           {
@@ -146,15 +171,27 @@ async function buildMyStatsEmbed(linkedAccountId, discordUserId, guildId, user) 
               `Weekly podiums: ${badgeLine(WEEKLY_RANK_MEDALS, weeklyBadgeCounts, (m) => m.rank)}`,
           },
           {
-            // Only counts `completed` challenges, same "badges are
-            // achievements, not participation" rule the Raid line follows
-            // — a failed/abandoned challenge earns nothing here. See
-            // getCompletedChallengeCounts' comment for why this groups by
-            // the challenge's own stored role rather than the character's.
-            name: '🎖️ Badges',
+            // Challenge badges moved here from the Badges field (see that
+            // field's own comment) — only `completed` challenges count,
+            // same "badges are achievements, not participation" rule
+            // everywhere else follows. Predictions/Right prediction rate
+            // are a completely separate axis (you as a *better* on someone
+            // else's challenge, via /challenge's public bet buttons) that
+            // happens to fit naturally under the same header — see
+            // getPredictionStats' comment for exactly what counts.
+            name: '🎲 Challenges',
             value:
-              `Raid: ${badgeLine(TIERS, tierCounts, (t) => t.key)}\n` +
-              `Challenge: ${badgeLine(CHALLENGE_TYPES, challengeCounts, (t) => t.key)}`,
+              `Prediction Rate: **${formatWinRate(correctPredictions, totalPredictions)}**\n` +
+              `Predictions: **${totalPredictions}**\n` +
+              `Badges: ${badgeLine(CHALLENGE_TYPES, challengeCounts, (t) => t.key)}`,
+          },
+          {
+            // Just the Raid tier badges now — Challenge badges live in
+            // 🎲 Challenges above instead (see that field's comment). "Raid"
+            // moved into the field name itself, so the value is only ever
+            // the medal line — nothing left to label inline.
+            name: '🎖️ Raid Badges',
+            value: badgeLine(TIERS, tierCounts, (t) => t.key),
             inline: false,
           },
         )

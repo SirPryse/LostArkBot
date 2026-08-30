@@ -162,34 +162,77 @@ generic "pick any character" tool). Zero matching-difficulty clears yet
 reads as "first clear sets the bar!" rather than an error — expected for a
 gold earner on a raid they've just unlocked.
 
-Accept/Reroll buttons on the result: Reroll re-picks from the same
-flattened gate pool, excluding whichever gate was just shown (falls back
-to the full pool if excluding would leave nothing). Accept is the only
-path that actually *persists* anything (`challenges` table, see
-`SCHEMA.md`) — a generated-but-never-accepted challenge leaves no trace,
-and a character can hold **multiple** accepted challenges at once (one per
-gate) — accepting only replaces an existing active challenge for that
-*exact same* gate, not any others in progress. The raw target numbers
-needed to persist live in an in-memory `pendingChallenges` Map keyed by the
-message id (same TTL-Map pattern as `pendingSelections`/`pendingLinks.js`/
+Gate offers exclude anything the character already has an **active,
+completed, or failed** challenge on (`getChallengeExclusionKeysForCharacter`
+— every decided-or-in-progress gate is off the table; only `abandoned`
+rows, replaced by a same-gate re-accept, leave that gate eligible again).
+Accept/Reroll buttons on the result: Reroll re-picks from
+the same (already-exclusion-filtered) gate pool, excluding whichever gate
+was just shown (falls back to the full available pool if excluding would
+leave nothing; if the *exclusion* filter alone empties the pool, that's a
+real "nothing left to offer" error instead). Accept is the only path that
+actually *persists* anything (`challenges` table, see `SCHEMA.md`) — a
+generated-but-never-accepted challenge leaves no trace, and a character
+can hold **multiple** accepted challenges at once (one per gate) —
+accepting only replaces an existing active challenge for that *exact
+same* gate, not any others in progress. The raw target numbers needed to
+persist live in an in-memory `pendingChallenges` Map keyed by the message
+id (same TTL-Map pattern as `pendingSelections`/`pendingLinks.js`/
 guess-parse's `activeRounds`), since Accept is a separate interaction from
 whichever one actually built the numbers — losing this (TTL/restart)
 degrades Accept to "locks the message, can't track completion" rather than
-blocking it outright. Once accepted, `poller.js`'s `checkChallengeProgress`
-checks every new competitive clear against the character's active
-challenges and announces the outcome to the guild's `/announce-channel` —
-with one gate per challenge, the very first matching clear fully resolves
-it: falling short fails it immediately (no unlimited retries), meeting the
-target completes it. One not resolved by the next raid reset after
-acceptance auto-expires as failed (`expireStaleChallenges`, checked every
-poll tick). Both outcome embeds carry the boss's image as a real attached
-thumbnail (`bossImages.js`, same as clear announcements) and the
-character's class emoji inline before its name — for a real clear this
-comes straight off the entry (`entry.class`); a timeout failure has no
-entry to read it from, so it falls back to a `getNameAndClassById()`
-lookup (can legitimately come back empty for a character with no clears
-logged yet, in which case the icon and character-name placeholder are
-just omitted rather than showing a broken tag).
+blocking it outright.
+
+**Accepting posts publicly, with betting.** Right after persisting,
+`postPublicChallenge()` posts a second embed to the guild's
+`/announce-channel` (if one is configured — otherwise Accept still works,
+just without the public/betting side) showing the challenger and the
+target, plus **Success**/**Failure** buttons anyone *except* the
+challenger can click to bet on the outcome (`challenge_bets` table, one
+row per (challenge, better) — re-clicking updates the same row rather than
+stacking, so a better can change their mind any time before it resolves).
+Button labels carry the live tally (`Success (N)` / `Failure (N)`),
+redrawn after every bet. The message id/channel land on the challenge row
+itself (`bet_channel_id`/`bet_message_id`, set via `setBetMessage`) so
+`poller.js` can find and lock that exact message once the challenge
+resolves.
+
+Once accepted, `poller.js`'s `checkChallengeProgress` checks every new
+competitive clear against the character's active challenges and announces
+the outcome to the guild's `/announce-channel` — with one gate per
+challenge, the very first matching clear fully resolves it: falling short
+fails it immediately (no unlimited retries), meeting the target completes
+it. One not resolved by the next raid reset after acceptance auto-expires
+as failed (`expireStaleChallenges`, checked every poll tick). Either path
+also calls `finalizeBetMessage()`, which disables the bet buttons and
+appends the final tally + result to the public bet post — a no-op if the
+challenge was never posted publicly (no announcement channel configured
+at Accept time) or the message/channel can no longer be found. Both
+outcome embeds carry the boss's image as a real attached thumbnail
+(`bossImages.js`, same as clear announcements) and the character's class
+emoji inline before its name — for a real clear this comes straight off
+the entry (`entry.class`); a timeout failure has no entry to read it
+from, so it falls back to a `getNameAndClassById()` lookup (can
+legitimately come back empty for a character with no clears logged yet,
+in which case the icon and character-name placeholder are just omitted
+rather than showing a broken tag).
+
+Prediction accuracy is never stored directly — `getPredictionStats`
+(`src/db/challengeBets.js`) compares each of a Discord user's bets against
+its parent challenge's resolved `status` at read time, powering `/my-stats`'
+Predictions / Right prediction rate line. A bet on a challenge that's still
+`active`, or that got `abandoned` by a same-gate re-accept, simply doesn't
+count toward anyone's rate yet.
+
+### `/challenge-history` — `challengeHistory.js`
+Read-only lookup, usable on *anyone* (not ownership-scoped — the whole
+point is letting other people check someone's challenges), defaulting to
+the caller if no `user` option is given. `listChallengesForDiscordUser`
+joins every challenge across every character that Discord user has tracked
+in the current guild, sorted active-first then newest-resolved-first.
+`abandoned` rows (replaced by a same-gate re-accept, never actually
+decided) are filtered out of the "Recent History" list entirely — showing
+them next to real completions/failures would just be noise, not history.
 
 ### `/untrack-character` / `/untrack-all` / `/leave-server` — increasing scope
 Three tiers of the same idea: `/untrack-character` removes only the calling
@@ -247,12 +290,20 @@ merges DPS and support percentiles into one tally — support's
 contribution axis has no DPS equivalent to merge against, so it's dropped
 here, unlike `/character-page` which keeps both), plus a **Battle Record**
 section (deaths, bus rides, below-min-DPS count — see `clearHistory.js`'s
-nullable-boolean design below) and a **Guess-Parse Stats** section
+nullable-boolean design below), a **Guess-Parse** section
 (`getLifetimeStats()`, unbounded — a permanent record, unlike the weekly
-leaderboard). Both the death-tier icon and the footer roast line are
-tiered/branch functions purely for tone (see inline comments in the file
-itself for the exact thresholds) — the underlying numbers are always the
-real counts, the flavor text never replaces them.
+leaderboard, merged with the weekly podium medal counts), and a **🎲
+Challenges** section: `/challenge` badges (dps/support gates completed as
+the *challenger*, `getCompletedChallengeCounts`) sitting alongside
+Predictions / Right prediction rate (`getPredictionStats` — how often this
+user has correctly called *someone else's* challenge outcome via
+`/challenge`'s public bet buttons). Two different roles — challenger vs.
+better — sharing one section, same "merge related-but-distinct axes"
+pattern Guess-Parse already uses for its own two data sources. Both the
+death-tier icon and the footer roast line are tiered/branch functions
+purely for tone (see inline comments in the file itself for the exact
+thresholds) — the underlying numbers are always the real counts, the
+flavor text never replaces them.
 
 ### `/bonk` / `/bonk-hard` — `bonk.js` / `bonkHard.js`
 Both show a roster's raid-family progress since the last Wednesday reset,
@@ -320,6 +371,20 @@ in the file (it's already extensively commented) — the short version:
   lifetime view read the same table with different time filters rather than
   keeping two counters that could drift.
 
+### `/help` — `help.js`
+Two modes off one command. No `command` option: lists every other
+command's own `SlashCommandBuilder` description verbatim (imported
+directly from each command module, not hand-duplicated — a single source
+of truth that can't drift out of sync as descriptions change) as one
+embed. With a `command` option (a fixed `addChoices()` list, one entry per
+command, so there's no "command not found" case to handle): shows a
+longer, hand-written `HELP_DETAILS` entry for that command — deliberately
+just the user-visible flow (what you'll see, click, or type), never the
+backend logic or DB checks behind it. `help` can't import its own
+not-yet-declared export for the list view, so its own list entry is a
+plain literal appended after the imported ones rather than sourced the
+same way.
+
 ## Background jobs
 
 ### `poller.js`
@@ -343,11 +408,14 @@ cleared this tick, then each new competitive clear runs through
 `checkChallengeProgress()`, which matches at most one active challenge
 (duplicates for the same gate are prevented at creation) and fully
 resolves it on that first matching clear — falling short fails it, meeting
-the target completes it. Both functions return the updated list (a
-resolved entry removed), which carries forward across the rest of that
-tick's entries so several gates cleared in one tick still each get
-credited correctly. Always calls `updateLastSeen()` at the end regardless
-of whether anything
+the target completes it. Both functions also call `finalizeBetMessage()`
+on every resolution, locking that challenge's public bet post (if it has
+one — see `/challenge`'s betting flow) by disabling its Success/Failure
+buttons and appending the final tally + result. Both functions return the
+updated list (a resolved entry removed), which carries forward across the
+rest of that tick's entries so several gates cleared in one tick still
+each get credited correctly. Always calls `updateLastSeen()` at the end
+regardless of whether anything
 new was found, which is also how `class_name`/`gear_score`/`combat_power`/
 `role` stay fresh on `tracked_characters` even between actual clears.
 

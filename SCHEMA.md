@@ -125,6 +125,8 @@ not every other in-progress challenge (see `src/db/challenges.js`).
 | `status`               | `active` \| `completed` \| `abandoned` \| `failed`            |
 | `met` / `met_at`       | set together once resolved either way                        |
 | `completed_at`         | set only on a real `completed`, never on a `failed`           |
+| `bet_channel_id`       | channel the public "place your bet" post landed in, null until Accepted with an announcement channel configured |
+| `bet_message_id`       | that post's message id — `poller.js` fetches and locks it (disables the buttons, appends the final tally) once this row resolves |
 
 With exactly one gate per row, the very first matching clear fully
 resolves it one way or the other — no more "some gates done" intermediate
@@ -141,6 +143,32 @@ deadline is the reset right after `created_at`, not a flat 7 days, so one
 taken right before Wednesday's reset doesn't get an almost-double-length
 window). Checked lazily every poll tick rather than via a dedicated
 scheduler.
+
+## `challenge_bets`
+
+**Bot-owned.** Once a challenge is Accepted, `challenge.js` posts it
+publicly (to `bet_channel_id` above) with Success/Failure buttons — anyone
+*except* the challenger can bet on the outcome, and can change their bet any
+time before the challenge resolves. One row per (challenge, better) pair,
+not an event log — re-betting updates the existing row (`upsertBet` in
+`src/db/challengeBets.js`) rather than stacking a new one, since only the
+*current* pick matters.
+
+| column               | notes                                                        |
+|-----------------------|--------------------------------------------------------------|
+| `challenge_id`        | FK to `challenges.id`, cascades on delete                     |
+| `discord_user_id`     | the better, not the challenger                                |
+| `predicted_outcome`   | `success` \| `failure`                                        |
+| `created_at` / `updated_at` | `updated_at` bumps on every re-bet                     |
+
+Unique on `(challenge_id, discord_user_id)`. Accuracy is never stored
+directly — `getPredictionStats` compares each bet's `predicted_outcome`
+against its parent challenge's resolved `status` at read time (`/my-stats`'
+Predictions / Right prediction rate), so a bet on a still-`active` or
+`abandoned` challenge simply doesn't count toward anyone's rate yet (an
+abandoned challenge — replaced by a same-gate re-accept — never actually
+gets decided one way or the other, so it never resolves into a right/wrong
+answer for anyone who bet on it).
 
 ## `raid_group_posts`
 

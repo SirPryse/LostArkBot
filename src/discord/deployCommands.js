@@ -18,6 +18,8 @@ import { leaveServerCommand } from './commands/leaveServer.js';
 import { linkAccountCommand } from './commands/linkAccount.js';
 import { goldEarnersCommand } from './commands/goldEarners.js';
 import { challengeCommand } from './commands/challenge.js';
+import { challengeHistoryCommand } from './commands/challengeHistory.js';
+import { helpCommand } from './commands/help.js';
 
 const commands = [
   announceChannelCommand,
@@ -27,6 +29,7 @@ const commands = [
   linkAccountCommand,
   goldEarnersCommand,
   challengeCommand,
+  challengeHistoryCommand,
   trackCharacterCommand,
   untrackCharacterCommand,
   characterPageCommand,
@@ -38,6 +41,7 @@ const commands = [
   guessLeaderboardCommand,
   untrackAllCommand,
   leaveServerCommand,
+  helpCommand,
 ].map((command) => command.data.toJSON());
 
 const rest = new REST().setToken(config.discordToken);
