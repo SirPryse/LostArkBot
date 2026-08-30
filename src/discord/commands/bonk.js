@@ -12,15 +12,15 @@ import { classifyClearGold, sumTopFamilies } from '../../notify/goldEstimate.js'
 import { getGoldEarnerKeySet } from '../../db/goldEarners.js';
 import { sleep } from '../../utils/sleep.js';
 
-const GOLD_EARNER_BADGE = '🪙';
-
 /** Same estimate/rules as clearHistory.js's getEstimatedGold, applied to a
  * live batch of this-week's entries instead of stored clear_history rows —
  * this command already fetches "since reset" entries fresh every run, so
  * there's no need to round-trip through the DB for a single week's total.
- * Returns 0 for a non-earner (their Extreme clears still count — see
- * classifyClearGold's alwaysCounts). */
-function weeklyGoldForCharacter(entries, isGoldEarner) {
+ * No `isGoldEarner` param anymore — /bonk only ever fetches Gold Earner
+ * characters now (see execute()), so every entry passed in here is already
+ * earner-eligible; a non-earner's Extreme clears still count on their own
+ * (classifyClearGold's alwaysCounts), same as before. */
+function weeklyGoldForCharacter(entries) {
   const familyTotals = new Map();
   let alwaysCounted = 0;
 
@@ -34,8 +34,7 @@ function weeklyGoldForCharacter(entries, isGoldEarner) {
     }
   }
 
-  const cappedTotal = isGoldEarner ? sumTopFamilies(familyTotals.values()) : 0;
-  return alwaysCounted + cappedTotal;
+  return alwaysCounted + sumTopFamilies(familyTotals.values());
 }
 
 // Same pacing poller.js uses between characters — /bonk fires one burst of
@@ -52,14 +51,11 @@ function emojiTag(classNameOrIconKey) {
 }
 
 /** One embed field per character: class icon + name as the header, raid
- * progress as a monospace table in the value so the columns line up.
- * `isGoldEarner` adds a 🪙 badge to the header — purely an identity marker
- * (this character's clears count toward the weekly gold total below), not
- * a number itself; see weeklyGoldForCharacter/the footer for the actual
- * estimate. */
-function buildCharacterField(characterName, className, gearScore, clearedGatesByFamily, isGoldEarner) {
-  const badge = isGoldEarner ? ` ${GOLD_EARNER_BADGE}` : '';
-  const header = `${emojiTag(className)} ${characterName}${badge} (iLvl: ${formatStat(gearScore)})`.trim();
+ * progress as a monospace table in the value so the columns line up. No
+ * Gold Earner badge anymore — every character shown here already is one
+ * (see execute()), so it'd just be noise repeated on every single field. */
+function buildCharacterField(characterName, className, gearScore, clearedGatesByFamily) {
+  const header = `${emojiTag(className)} ${characterName} (iLvl: ${formatStat(gearScore)})`.trim();
 
   const rows = RAID_FAMILIES.filter((family) => clearedGatesByFamily.has(family.key)).map((family) => ({
     label: family.label,
@@ -75,7 +71,7 @@ function buildCharacterField(characterName, className, gearScore, clearedGatesBy
 export const bonkCommand = {
   data: new SlashCommandBuilder()
     .setName('bonk')
-    .setDescription("Show a user's raid clears since this week's reset, grouped by raid")
+    .setDescription("Show a user's Gold Earner clears since this week's reset, grouped by raid")
     .addUserOption((option) =>
       option.setName('user').setDescription('Whose roster to check (defaults to you)'),
     ),
@@ -95,7 +91,22 @@ export const bonkCommand = {
       return;
     }
 
-    const characters = await listDistinctByLinkedAccount(account.id);
+    // Scoped to Gold Earners only, not every distinct character the account
+    // has ever tracked — the earner set is capped at 6 (MAX_GOLD_EARNERS),
+    // so this bounds the per-invocation API burst regardless of how many
+    // alts someone has accumulated across servers (a 20-alt account was
+    // measured taking ~12s of pure request time on the full unfiltered
+    // list — see the /bonk-is-slow investigation). /bonk-hard still checks
+    // everyone, by design (its whole point is catching characters that
+    // aren't even gold earners sitting at 0 clears).
+    const earnerKeySet = await getGoldEarnerKeySet(account.id);
+    if (earnerKeySet.size === 0) {
+      await interaction.editReply(`${targetUser} doesn't have any Gold Earners set — run \`/gold-earners\` first.`);
+      return;
+    }
+
+    const allCharacters = await listDistinctByLinkedAccount(account.id);
+    const characters = allCharacters.filter((c) => earnerKeySet.has(`${c.character_name}|${c.region}`));
     if (characters.length === 0) {
       await interaction.editReply(`${targetUser} isn't tracking any characters.`);
       return;
@@ -103,7 +114,6 @@ export const bonkCommand = {
 
     const accessToken = decryptToken(account.access_token);
     const boundaryMs = lastWednesdayReset().getTime();
-    const earnerKeySet = await getGoldEarnerKeySet(account.id);
 
     // Gathered first, then sorted by iLvl before building fields — gearScore
     // isn't known until the logs come back, so it can't sort while fetching.
@@ -138,10 +148,9 @@ export const bonkCommand = {
 
       if (clearedGatesByFamily.size === 0) continue; // clears happened, but none matched a known raid family
 
-      const isGoldEarner = earnerKeySet.has(`${name}|${region}`);
-      weeklyGoldTotal += weeklyGoldForCharacter(entries, isGoldEarner);
+      weeklyGoldTotal += weeklyGoldForCharacter(entries);
 
-      results.push({ name, gearScore: entries[0].gearScore, class: entries[0].class, clearedGatesByFamily, isGoldEarner });
+      results.push({ name, gearScore: entries[0].gearScore, class: entries[0].class, clearedGatesByFamily });
     }
 
     if (results.length === 0) {
@@ -151,9 +160,7 @@ export const bonkCommand = {
 
     results.sort((a, b) => b.gearScore - a.gearScore); // highest iLvl first
 
-    const fields = results.map((r) =>
-      buildCharacterField(r.name, r.class, r.gearScore, r.clearedGatesByFamily, r.isGoldEarner),
-    );
+    const fields = results.map((r) => buildCharacterField(r.name, r.class, r.gearScore, r.clearedGatesByFamily));
 
     const resetLabel = lastWednesdayReset().toLocaleDateString('en-US', {
       weekday: 'short',

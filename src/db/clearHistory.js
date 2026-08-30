@@ -146,7 +146,11 @@ export async function getAggregateStats(linkedAccountId, guildId, tierMins) {
  * 50/50 Roster/Unbound — see splitGold's own comment for confirmed-vs-
  * assumed detail).
  */
-function computeEstimatedGoldSplit(rows, earnerKeySet) {
+// Exported (not just used internally) so it can be unit-tested directly
+// with synthetic in-memory rows — it's a pure function of its two
+// arguments, no DB access of its own, so there's no reason to require a
+// real clear_history round-trip just to verify its top-3/split logic.
+export function computeEstimatedGoldSplit(rows, earnerKeySet) {
   const result = { total: 0, character: 0, roster: 0, unbound: 0 };
 
   const addSplit = (familyKey, gold) => {
