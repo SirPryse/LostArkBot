@@ -53,6 +53,32 @@ const ALL_COMMANDS = [
   { name: 'help', description: 'List every command, or get detailed usage for one' },
 ].sort((a, b) => a.name.localeCompare(b.name));
 
+// The no-argument list view groups commands by what they're for rather
+// than one flat alphabetical wall of text. Setup comes first — everything
+// a user needs to get a roster tracked (and untracked) lives here — every
+// other section is alphabetical within itself and doesn't need to be
+// memorized in order. Every command name must appear in exactly one
+// group; there's no runtime check for that, so a new command needs to be
+// added here too (this list is deliberately not derived from
+// ALL_COMMANDS, since the grouping itself — not just the membership — is
+// a judgment call).
+const COMMAND_GROUPS = [
+  {
+    label: '🛠️ Setup',
+    names: ['link-account', 'track-character', 'gold-earners', 'untrack-character', 'untrack-all'],
+  },
+  { label: '🎯 Challenges', names: ['challenge', 'challenge-history'] },
+  {
+    label: '📊 Stats & Raid Info',
+    names: ['my-stats', 'character-page', 'bonk', 'bonk-hard', 'recent-raids', 'registered-users'],
+  },
+  { label: '🎮 Guess-Parse', names: ['guess-parse', 'guess-leaderboard'] },
+  {
+    label: '⚙️ Management & Admin',
+    names: ['announce-channel', 'leave-server', 'nuke', 'check-now', 'help'],
+  },
+];
+
 // Longer, purely user-facing usage text for `/help <command>` — what you
 // see and can click/type, never the data model or checks happening behind
 // it. Deliberately hand-written (not derived from code) since the goal is
@@ -95,10 +121,24 @@ export const helpCommand = {
     const commandName = interaction.options.getString('command');
 
     if (!commandName) {
-      const lines = ALL_COMMANDS.map((c) => `**/${c.name}** — ${c.description}`).join('\n');
+      const formatLine = (c) => `**/${c.name}** — ${c.description}`;
+      // Built as sections within one setDescription() rather than one
+      // embed field per group — several groups' combined text would land
+      // close to or past Discord's 1024-char per-field cap depending on
+      // how they're split, while setDescription()'s 4096-char cap has
+      // plenty of headroom for the whole grouped list at once.
+      const sections = COMMAND_GROUPS.map((group) => {
+        const lines = group.names
+          .map((name) => ALL_COMMANDS.find((c) => c.name === name))
+          .filter(Boolean)
+          .map(formatLine)
+          .join('\n');
+        return `**${group.label}**\n${lines}`;
+      });
+
       const embed = new EmbedBuilder()
         .setTitle('📖 Command List')
-        .setDescription(lines)
+        .setDescription(sections.join('\n\n'))
         .setColor(FALLBACK_COLOR)
         .setFooter({ text: 'Run /help command:<name> for a more detailed walkthrough of any one of these.' });
       await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
