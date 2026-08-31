@@ -89,11 +89,20 @@ export const RAID_FAMILIES = [
     label: 'Serca',
     difficulties: ['Normal', 'Hard', 'Nightmare'],
     gates: [['Witch of Agony, Serca'], ['Corvus Tul Rak']],
+    // Normal's 50/50 split is patch-note-confirmed (RAID_DATA.md); Hard
+    // and Nightmare instead pay 100% Unbound — confirmed directly, not
+    // the 50/50 default other unconfirmed-split raids fall back to. See
+    // FULLY_UNBOUND_GOLD_KEYS/splitGold() in goldEstimate.js.
+    fullyUnboundDifficulties: ['Hard', 'Nightmare'],
   },
   {
     key: 'kazeros',
     label: 'Kazeros',
     difficulties: ['Normal', 'Hard'],
+    // Normal's 50/50 split is patch-note-confirmed; Hard instead pays
+    // 100% Unbound — same confirmed-not-assumed situation as Serca
+    // Hard/Nightmare above.
+    fullyUnboundDifficulties: ['Hard'],
     // Both aliases used to be unrestricted plain strings — harmless for
     // getRaidFamilyForBoss (any alias identifies the gate regardless of
     // which one matched), but wrong for getBossNameForGateAtDifficulty
@@ -189,6 +198,16 @@ export const ALWAYS_PAYS_GOLD_FAMILY_KEYS = new Set(
  * cathedral above. */
 export const CHARACTER_BOUND_GOLD_FAMILY_KEYS = new Set(
   RAID_FAMILIES.filter((f) => f.paysCharacterBoundGold).map((f) => f.key),
+);
+
+/** `"familyKey|difficulty"` combos confirmed to pay 100% Unbound rather
+ * than the usual 50/50 Roster/Unbound default — see each family's own
+ * `fullyUnboundDifficulties` comment (Serca Hard/Nightmare, Kazeros Hard).
+ * Checked by splitGold() before falling back to 50/50; a combo not in
+ * here isn't assumed 50/50 vs. 100% unbound one way or the other by this
+ * set itself — splitGold() is what actually decides the fallback. */
+export const FULLY_UNBOUND_GOLD_KEYS = new Set(
+  RAID_FAMILIES.flatMap((f) => (f.fullyUnboundDifficulties ?? []).map((d) => `${f.key}|${d}`)),
 );
 
 /**

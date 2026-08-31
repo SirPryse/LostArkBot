@@ -1,4 +1,9 @@
-import { getRaidFamilyForBoss, ALWAYS_PAYS_GOLD_FAMILY_KEYS, CHARACTER_BOUND_GOLD_FAMILY_KEYS } from './raidFamilies.js';
+import {
+  getRaidFamilyForBoss,
+  ALWAYS_PAYS_GOLD_FAMILY_KEYS,
+  CHARACTER_BOUND_GOLD_FAMILY_KEYS,
+  FULLY_UNBOUND_GOLD_KEYS,
+} from './raidFamilies.js';
 
 /**
  * Estimated gold for one gate clear, by boss name then difficulty — same
@@ -125,20 +130,31 @@ export function classifyClearGold(entry) {
 }
 
 /**
- * Splits one family's gold total into { character, roster, unbound } —
- * Cathedral pays 100% Character-Bound (confirmed), everything else pays
- * 50/50 Roster/Unbound. That 50/50 figure is patch-note-confirmed for most
- * raids' rows in RAID_DATA.md, and a consistent-pattern *assumption* for
- * the handful whose split wasn't directly confirmed there (Armoche/Kazeros
- * Hard, Serca Hard/Nightmare, both Extreme raids) — every split that *was*
- * confirmed came out exactly 50/50, so extrapolating the same ratio for
- * their still-unconfirmed siblings is a reasonable estimate, not a guess
- * pulled from nowhere. No raid found anywhere pays real Character-Bound
- * gold other than Cathedral, so that's not assumed to apply elsewhere.
+ * Splits one family's gold total into { character, roster, unbound }:
+ *
+ * 1. Cathedral pays 100% Character-Bound (confirmed) — checked first,
+ *    regardless of difficulty.
+ * 2. Serca Hard/Nightmare and Kazeros Hard pay 100% Unbound (confirmed,
+ *    not assumed) — see FULLY_UNBOUND_GOLD_KEYS. `difficulty` is required
+ *    to tell these apart from their own Normal counterpart, which still
+ *    pays the 50/50 default below; a `null` difficulty (an older clear
+ *    recorded before raid_difficulty was tracked — see the
+ *    add_raid_difficulty migration) can't be checked against this set at
+ *    all and just falls through to the 50/50 default rather than guessing.
+ * 3. Everything else pays 50/50 Roster/Unbound. That figure is
+ *    patch-note-confirmed for most raids' rows in RAID_DATA.md, and a
+ *    consistent-pattern *assumption* for the handful whose split wasn't
+ *    directly confirmed there (Armoche Hard, both Extreme raids) — every
+ *    split that *was* confirmed came out exactly 50/50, so extrapolating
+ *    the same ratio for their still-unconfirmed siblings is a reasonable
+ *    estimate, not a guess pulled from nowhere.
  */
-export function splitGold(familyKey, total) {
+export function splitGold(familyKey, difficulty, total) {
   if (CHARACTER_BOUND_GOLD_FAMILY_KEYS.has(familyKey)) {
     return { character: total, roster: 0, unbound: 0 };
+  }
+  if (difficulty != null && FULLY_UNBOUND_GOLD_KEYS.has(`${familyKey}|${difficulty}`)) {
+    return { character: 0, roster: 0, unbound: total };
   }
   const roster = Math.round(total / 2);
   return { character: 0, roster, unbound: total - roster };

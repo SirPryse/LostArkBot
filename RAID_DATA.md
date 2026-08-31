@@ -59,33 +59,36 @@ difficulty level (Stage 1/2/3 = Level 1/2/3), same 2 gates at every stage.
 ## Serca
 
 iLvl confirmed directly from the raid's own release patch notes. Normal
-difficulty's 50/50 split is also patch-note-confirmed current (June 2026);
-Hard/Nightmare totals are maxroll-sourced only, cross-checked against an
+difficulty's 50/50 split is also patch-note-confirmed current (June 2026).
+Hard/Nightmare totals are maxroll-sourced, cross-checked against an
 independent player-reported total (44,000 Hard / 54,000 Nightmare combined)
-that matched exactly — split unknown for those two, left blank.
+that matched exactly — confirmed **100% Unbound Gold** (not the 50/50 that
+Normal pays), not the maxroll-default split assumption. See
+`fullyUnboundDifficulties` on Serca's family entry in `raidFamilies.js`.
 
 | Gate | Boss | Difficulty | Min iLvl | Character Gold | Roster Gold | Unbound Gold | Total Gold |
 |---|---|---|---|---|---|---|---|
 | 1 | Witch of Agony, Serca | Normal | 1710 | | 7,000 | 7,000 | 14,000 |
-| 1 | Witch of Agony, Serca | Hard | 1730 | | | | 17,500 |
-| 1 | Witch of Agony, Serca | Nightmare | 1740 | | | | 21,000 |
+| 1 | Witch of Agony, Serca | Hard | 1730 | | 0 | 17,500 | 17,500 |
+| 1 | Witch of Agony, Serca | Nightmare | 1740 | | 0 | 21,000 | 21,000 |
 | 2 | Corvus Tul Rak | Normal | 1710 | | 10,500 | 10,500 | 21,000 |
-| 2 | Corvus Tul Rak | Hard | 1730 | | | | 26,500 |
-| 2 | Corvus Tul Rak | Nightmare | 1740 | | | | 33,000 |
+| 2 | Corvus Tul Rak | Hard | 1730 | | 0 | 26,500 | 26,500 |
+| 2 | Corvus Tul Rak | Nightmare | 1740 | | 0 | 33,000 | 33,000 |
 
 ## Kazeros
 
 Normal difficulty's split (50/50 Roster-Bound/tradeable) is confirmed
-current as of the June 2026 patch; Hard's total is maxroll-sourced only —
-the patch note confirming the split change explicitly said Normal-only, so
-Hard's split is left blank rather than assumed to also be 50/50.
+current as of the June 2026 patch; Hard's total is maxroll-sourced.
+Hard is confirmed **100% Unbound Gold** (not 50/50, and not the same as
+Normal's split) — see `fullyUnboundDifficulties` on Kazeros' family entry
+in `raidFamilies.js`.
 
 | Gate | Boss | Difficulty | Min iLvl | Character Gold | Roster Gold | Unbound Gold | Total Gold |
 |---|---|---|---|---|---|---|---|
 | 1 | Abyss Lord Kazeros | Normal | 1710 | | 7,000 | 7,000 | 14,000 |
-| 1 | Abyss Lord Kazeros | Hard | 1730 | | | | 17,000 |
+| 1 | Abyss Lord Kazeros | Hard | 1730 | | 0 | 17,000 | 17,000 |
 | 2 | Archdemon Kazeros | Normal | 1710 | | 13,000 | 13,000 | 26,000 |
-| 2 | Death Incarnate Kazeros | Hard | 1730 | | | | 35,000 |
+| 2 | Death Incarnate Kazeros | Hard | 1730 | | 0 | 35,000 | 35,000 |
 
 ## Armoche
 
@@ -143,9 +146,11 @@ difficulties, exact 50/50 split.
 
 **Derived, not sourced** — computed from the Total Gold figures in the
 sections above: at each iLvl, whichever 3 families sum to the highest total
-(always at the hardest difficulty that iLvl unlocks), plus the best
-available Extreme raid (its own separate roster-wide limit, doesn't consume
-the 3-family cap).
+(always at the hardest difficulty that iLvl unlocks), plus **both** Extreme
+raids that iLvl unlocks (Aegir Extreme and Brelshaza Extreme each have
+their own independent roster-wide weekly limit and don't consume the
+3-family cap — confirmed they stack for double Extreme gold when both are
+run the same week, see the note below the table).
 
 **This table goes stale the moment the data above changes** — a new raid
 added to this file, a gold figure corrected, or a new difficulty tier
@@ -156,7 +161,7 @@ Armoche's own numbers not changing). **Whenever any raid/gold/iLvl value
 above is added or edited, re-run this ranking by hand and update the table
 — don't assume it still holds.**
 
-| iLvl | Best 3 families (difficulty) | Subtotal | Extreme | Extreme gold | Weekly total |
+| iLvl | Best 3 families (difficulty) | Subtotal | Extreme (both, if unlocked) | Extreme gold | Weekly total |
 |---|---|---|---|---|---|
 | 1660 | Aegir (N) — only one unlocked | 11,500 | — | — | 11,500 |
 | 1670 | Brelshaza (N), Aegir (N) — only two | 28,000 | — | — | 28,000 |
@@ -164,15 +169,22 @@ above is added or edited, re-run this ranking by hand and update the table
 | 1690 | Brelshaza (H), Mordum (N), Aegir (H) | 62,000 | — | — | 62,000 |
 | 1700 | Armoche (N), Cathedral (L1), Mordum (H) | 90,000 | — | — | 90,000 |
 | 1710 | Kazeros (N), Serca (N), Armoche (N) | 108,000 | — | — | 108,000 |
-| 1720 | Armoche (H), Kazeros (N), Cathedral (L2) | 122,000 | Normal | 20,000 | 142,000 |
-| 1730 | Kazeros (H), Serca (H), Armoche (H) | 138,000 | Normal | 20,000 | 158,000 |
-| 1740 | Serca (NM), Kazeros (H), Armoche (H) | 148,000 | Normal | 20,000 | 168,000 |
-| 1750 | Serca (NM), Kazeros (H), Cathedral (L3) | 156,000 | Hard | 45,000 | 201,000 |
-| 1770 | Serca (NM), Kazeros (H), Cathedral (L3) | 156,000 | Nightmare | 45,000 | 201,000* |
+| 1720 | Armoche (H), Kazeros (N), Cathedral (L2) | 122,000 | Aegir Extreme (N) + Brelshaza Extreme (N) | 40,000 | 162,000 |
+| 1730 | Kazeros (H), Serca (H), Armoche (H) | 138,000 | Aegir Extreme (N) + Brelshaza Extreme (N) | 40,000 | 178,000 |
+| 1740 | Serca (NM), Kazeros (H), Armoche (H) | 148,000 | Aegir Extreme (N) + Brelshaza Extreme (N) | 40,000 | 188,000 |
+| 1750 | Serca (NM), Kazeros (H), Cathedral (L3) | 156,000 | Aegir Extreme (H) + Brelshaza Extreme (H) | 90,000 | 246,000 |
+| 1770 | Serca (NM), Kazeros (H), Cathedral (L3) | 156,000 | Aegir Extreme (NM) + Brelshaza Extreme (NM) | 90,000 | 246,000* |
 
 \* Same gold as 1750 — nothing currently in this file unlocks a
 higher-paying tier between 1750 and 1770; Extreme Nightmare only adds
 harder content/title rewards at this iLvl, not more gold.
+
+Live-code-verified (2026-08-30): a from-scratch ground-truth
+implementation, cross-checked against `challengeRaids.js`'s picker,
+`goldEstimate.js`'s live weekly calc (`/bonk`), and `clearHistory.js`'s
+DB-backed calc (`/my-stats`/`/character-page`), agreed exactly with every
+row above at every gear-score breakpoint from 1600-1800, including the
+doubled Extreme total.
 
 Notes:
 - Cathedral's gold is 100% Character-Bound (not Roster/Unbound like the
@@ -192,11 +204,14 @@ Notes:
 
 ## Still missing
 
-- **Armoche / Kazeros Hard difficulty split** — totals are maxroll-sourced
-  (15,000 / 27,000 / 17,000 / 35,000) and consistent with the Normal totals
-  the June 2026 patch confirmed unchanged, but the patch note's split
-  breakdown was explicitly Normal-difficulty-only, so Hard's Roster/Unbound
-  columns are left blank rather than assumed to also be 50/50.
+- **Armoche Hard difficulty split** — totals are maxroll-sourced (15,000 /
+  27,000) and consistent with the Normal totals the June 2026 patch
+  confirmed unchanged, but the patch note's split breakdown was explicitly
+  Normal-difficulty-only, so Hard's Roster/Unbound columns still assume the
+  50/50 default rather than being confirmed. (Kazeros Hard was in this same
+  situation until confirmed 100% Unbound — see the Kazeros section above —
+  so Armoche Hard being 50/50 rather than 100% Unbound too isn't a safe
+  assumption either way; it's just the current best guess.)
 - **Character Gold column, everywhere except Cathedral** — every standard
   8-player raid gate's gold above is confirmed split only between
   "Roster-Bound" and what the patch notes call "Normal" (read here as
@@ -205,9 +220,6 @@ Notes:
   pool for these raids the way Cathedral has one — it may simply not exist
   outside solo-mode/Cathedral-style content, but that's an inference, not a
   confirmed absence.
-- **Serca Hard/Nightmare split** — totals confirmed (see above) but no
-  source found breaks down the Roster-Bound/Unbound split for those two
-  difficulties, only Normal.
 - **Aegir Extreme / Brelshaza Extreme's split** — the total per difficulty
   is confirmed (see those sections above) but patch notes don't break down
   which gold type it's paid in.

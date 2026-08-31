@@ -488,6 +488,7 @@ async function processCharacter(discordClient, row) {
             entry.isBus ?? null,
             raidFamilyKey,
             estimatedGold,
+            entry.difficulty ?? null,
           );
 
           activeChallenges = await checkChallengeProgress(discordClient, row.guild_id, channelId, entry, activeChallenges);

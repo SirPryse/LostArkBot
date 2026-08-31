@@ -14,7 +14,11 @@ import { sumTopFamilies, splitGold } from '../notify/goldEstimate.js';
  * added as NOT NULL DEFAULT false — see the migration that fixed it).
  * raidFamilyKey/estimatedGold are the same "null means not applicable"
  * shape again — see goldEstimate.js and getEstimatedGold() below for how
- * they're actually used. poller.js's call site always passes a real
+ * they're actually used. raidDifficulty is the raw difficulty string
+ * itself (not derived) — only used by splitGold() to tell apart
+ * difficulties within a family that pay a different gold split than the
+ * family's default (Serca Hard/Nightmare, Kazeros Hard — see that
+ * function's comment). poller.js's call site always passes a real
  * computed value for every one of these. */
 export async function recordClear(
   trackedCharacterId,
@@ -25,12 +29,13 @@ export async function recordClear(
   isBus = null,
   raidFamilyKey = null,
   estimatedGold = null,
+  raidDifficulty = null,
 ) {
   await pool.query(
     `insert into clear_history
-       (tracked_character_id, percentile, contribution_percentile, died, below_min_dps, is_bus, raid_family_key, estimated_gold)
-     values ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [trackedCharacterId, percentile, contributionPercentile, died, belowMinDps, isBus, raidFamilyKey, estimatedGold],
+       (tracked_character_id, percentile, contribution_percentile, died, below_min_dps, is_bus, raid_family_key, estimated_gold, raid_difficulty)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [trackedCharacterId, percentile, contributionPercentile, died, belowMinDps, isBus, raidFamilyKey, estimatedGold, raidDifficulty],
   );
 }
 
@@ -153,8 +158,8 @@ export async function getAggregateStats(linkedAccountId, guildId, tierMins) {
 export function computeEstimatedGoldSplit(rows, earnerKeySet) {
   const result = { total: 0, character: 0, roster: 0, unbound: 0 };
 
-  const addSplit = (familyKey, gold) => {
-    const split = splitGold(familyKey, gold);
+  const addSplit = (familyKey, difficulty, gold) => {
+    const split = splitGold(familyKey, difficulty, gold);
     result.total += gold;
     result.character += split.character;
     result.roster += split.roster;
@@ -164,7 +169,7 @@ export function computeEstimatedGoldSplit(rows, earnerKeySet) {
   const nonExtreme = [];
   for (const row of rows) {
     if (ALWAYS_PAYS_GOLD_FAMILY_KEYS.has(row.raid_family_key)) {
-      addSplit(row.raid_family_key, row.estimated_gold);
+      addSplit(row.raid_family_key, row.raid_difficulty, row.estimated_gold);
     } else {
       nonExtreme.push(row);
     }
@@ -172,23 +177,39 @@ export function computeEstimatedGoldSplit(rows, earnerKeySet) {
 
   const eligible = nonExtreme.filter((r) => earnerKeySet.has(`${r.character_name}|${r.region}`));
 
-  // character|region|weekStartMs -> family key -> { sum, familyKey }
+  // character|region|weekStartMs -> family key -> difficulty -> gold. Kept
+  // per-difficulty (not just per-family) since the split itself can differ
+  // by difficulty within the same family (Serca Hard/Nightmare and Kazeros
+  // Hard pay 100% Unbound, their own Normal doesn't) — a family's *ranking*
+  // for the top-3 cut still uses its combined total across whatever
+  // difficulties it has that week, but each difficulty's gold gets split
+  // separately once that family makes the cut.
   const weeklyFamilyTotals = new Map();
   for (const row of eligible) {
     const weekStartMs = lastWednesdayReset(new Date(row.created_at)).getTime();
     const bucketKey = `${row.character_name}|${row.region}|${weekStartMs}`;
     if (!weeklyFamilyTotals.has(bucketKey)) weeklyFamilyTotals.set(bucketKey, new Map());
     const families = weeklyFamilyTotals.get(bucketKey);
-    families.set(row.raid_family_key, (families.get(row.raid_family_key) ?? 0) + row.estimated_gold);
+    if (!families.has(row.raid_family_key)) families.set(row.raid_family_key, new Map());
+    const byDifficulty = families.get(row.raid_family_key);
+    byDifficulty.set(row.raid_difficulty, (byDifficulty.get(row.raid_difficulty) ?? 0) + row.estimated_gold);
   }
 
   for (const families of weeklyFamilyTotals.values()) {
     // Which families actually made the top-3-by-value cut this week —
     // sumTopFamilies only returns the total, so the cutoff itself is
-    // re-derived here to know *which* entries to split and add.
-    const sorted = [...families.entries()].sort((a, b) => b[1] - a[1]);
-    for (const [familyKey, gold] of sorted.slice(0, 3)) {
-      addSplit(familyKey, gold);
+    // re-derived here to know *which* entries to split and add. Ranked by
+    // each family's combined total across all its difficulties that week.
+    const familyEntries = [...families.entries()].map(([familyKey, byDifficulty]) => ({
+      familyKey,
+      byDifficulty,
+      total: [...byDifficulty.values()].reduce((sum, gold) => sum + gold, 0),
+    }));
+    const sorted = familyEntries.sort((a, b) => b.total - a.total);
+    for (const { familyKey, byDifficulty } of sorted.slice(0, 3)) {
+      for (const [difficulty, gold] of byDifficulty.entries()) {
+        addSplit(familyKey, difficulty, gold);
+      }
     }
   }
 
@@ -207,7 +228,7 @@ const EMPTY_GOLD_SPLIT = { total: 0, character: 0, roster: 0, unbound: 0 };
 export async function getEstimatedGoldForAccount(linkedAccountId, guildId) {
   const [{ rows }, earnerKeySet] = await Promise.all([
     pool.query(
-      `select tc.character_name, tc.region, ch.raid_family_key, ch.estimated_gold, ch.created_at
+      `select tc.character_name, tc.region, ch.raid_family_key, ch.estimated_gold, ch.raid_difficulty, ch.created_at
        from clear_history ch
        join tracked_characters tc on tc.id = ch.tracked_character_id
        where tc.linked_account_id = $1 and tc.guild_id = $2 and ${GOLD_BEARING_CLEAR_WHERE}`,
@@ -223,7 +244,7 @@ export async function getEstimatedGoldForAccount(linkedAccountId, guildId) {
  * per-character view. Returns { total, character, roster, unbound }. */
 export async function getEstimatedGoldForCharacter(trackedCharacterId) {
   const { rows } = await pool.query(
-    `select tc.character_name, tc.region, tc.linked_account_id, ch.raid_family_key, ch.estimated_gold, ch.created_at
+    `select tc.character_name, tc.region, tc.linked_account_id, ch.raid_family_key, ch.estimated_gold, ch.raid_difficulty, ch.created_at
      from clear_history ch
      join tracked_characters tc on tc.id = ch.tracked_character_id
      where tc.id = $1 and ${GOLD_BEARING_CLEAR_WHERE}`,
