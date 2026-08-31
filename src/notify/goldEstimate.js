@@ -3,6 +3,7 @@ import {
   ALWAYS_PAYS_GOLD_FAMILY_KEYS,
   CHARACTER_BOUND_GOLD_FAMILY_KEYS,
   FULLY_UNBOUND_GOLD_KEYS,
+  ALWAYS_FULLY_UNBOUND_GOLD_FAMILY_KEYS,
 } from './raidFamilies.js';
 
 /**
@@ -134,24 +135,37 @@ export function classifyClearGold(entry) {
  *
  * 1. Cathedral pays 100% Character-Bound (confirmed) — checked first,
  *    regardless of difficulty.
- * 2. Serca Hard/Nightmare and Kazeros Hard pay 100% Unbound (confirmed,
- *    not assumed) — see FULLY_UNBOUND_GOLD_KEYS. `difficulty` is required
- *    to tell these apart from their own Normal counterpart, which still
- *    pays the 50/50 default below; a `null` difficulty (an older clear
- *    recorded before raid_difficulty was tracked — see the
- *    add_raid_difficulty migration) can't be checked against this set at
- *    all and just falls through to the 50/50 default rather than guessing.
- * 3. Everything else pays 50/50 Roster/Unbound. That figure is
+ * 2. Both Extreme raids pay 100% Unbound at *every* difficulty tier
+ *    (confirmed) — see ALWAYS_FULLY_UNBOUND_GOLD_FAMILY_KEYS. Checked by
+ *    family alone, before `difficulty` is even considered, specifically
+ *    so a clear whose exact Extreme tier is unknown/ambiguous (e.g. an
+ *    old row where Extreme Hard vs. Nightmare can't be told apart by gold
+ *    value alone — both are 45,000) still gets the correct split, since
+ *    every possible difficulty for these two families lands the same way
+ *    regardless.
+ * 3. Serca Hard/Nightmare and Kazeros Hard also pay 100% Unbound
+ *    (confirmed) — see FULLY_UNBOUND_GOLD_KEYS. Unlike step 2, these
+ *    families mix fully-unbound and 50/50 difficulties, so `difficulty`
+ *    is required to tell them apart from their own Normal counterpart; a
+ *    `null` difficulty (an older clear recorded before raid_difficulty
+ *    was tracked — see the add_raid_difficulty migration, and its
+ *    genuinely-ambiguous-value carve-outs) can't be checked against this
+ *    set at all and falls through to the 50/50 default rather than
+ *    guessing.
+ * 4. Everything else pays 50/50 Roster/Unbound. That figure is
  *    patch-note-confirmed for most raids' rows in RAID_DATA.md, and a
  *    consistent-pattern *assumption* for the handful whose split wasn't
- *    directly confirmed there (Armoche Hard, both Extreme raids) — every
- *    split that *was* confirmed came out exactly 50/50, so extrapolating
- *    the same ratio for their still-unconfirmed siblings is a reasonable
- *    estimate, not a guess pulled from nowhere.
+ *    directly confirmed there (Armoche Hard) — every split that *was*
+ *    confirmed came out exactly 50/50, so extrapolating the same ratio
+ *    for its still-unconfirmed sibling is a reasonable estimate, not a
+ *    guess pulled from nowhere.
  */
 export function splitGold(familyKey, difficulty, total) {
   if (CHARACTER_BOUND_GOLD_FAMILY_KEYS.has(familyKey)) {
     return { character: total, roster: 0, unbound: 0 };
+  }
+  if (ALWAYS_FULLY_UNBOUND_GOLD_FAMILY_KEYS.has(familyKey)) {
+    return { character: 0, roster: 0, unbound: total };
   }
   if (difficulty != null && FULLY_UNBOUND_GOLD_KEYS.has(`${familyKey}|${difficulty}`)) {
     return { character: 0, roster: 0, unbound: total };

@@ -70,7 +70,7 @@ Powers the badge tally on that command and /my-stats' Battle Record field.
 | `is_bus`                   | the clear's own `isBus` flag from lostark.bible — **nullable**: null means "recorded before this column existed", not "wasn't a bus". Never backfilled for historical rows (same as `class_name`/`gear_score` on `tracked_characters` below) — real values only exist for clears recorded after this column was added. |
 | `raid_family_key`          | which `raidFamilies.js` family this clear belongs to (e.g. `'aegir'`), looked up via `getRaidFamilyForBoss()` at record time — **nullable**, same "not applicable/not known" convention as the rest. Only used by `getEstimatedGold*()` (below) to apply the weekly 3-family gold cap. |
 | `estimated_gold`           | that gate's gold value from `src/notify/goldEstimate.js` (sourced from `RAID_DATA.md`) — **nullable**, null when no figure is known for that boss/difficulty yet. This is an *estimate*, not a real recorded amount: lostark.bible's log data has no gold field at all. |
-| `raid_difficulty`          | the clear's raw difficulty string (e.g. `'Hard'`) — **nullable**, added after `raid_family_key`/`estimated_gold` (see below for why it can't be backfilled). Only used by `splitGold()` to tell apart a family's difficulties that pay 100% Unbound (Serca Hard/Nightmare, Kazeros Hard — confirmed) from the ones that still pay the usual 50/50 default. |
+| `raid_difficulty`          | the clear's raw difficulty string (e.g. `'Hard'`) — **nullable**, added after `raid_family_key`/`estimated_gold`. Only used by `splitGold()` to tell apart a family's difficulties that pay 100% Unbound (Serca Hard/Nightmare, Kazeros Hard — confirmed) from the ones that still pay the usual 50/50 default. |
 
 Neither the raw `dps` value nor which boss a clear was for gets stored
 directly on this table — `raid_family_key`/`estimated_gold` above are both
@@ -78,15 +78,21 @@ directly on this table — `raid_family_key`/`estimated_gold` above are both
 `goldEstimate.js`), not the raw boss/difficulty string itself (`raid_difficulty`
 is the one exception — the raw difficulty string itself, not derived). There's
 also no link back to the specific lostark.bible log entry a row came from (no
-`log_id`). All of this means `below_min_dps`/`is_bus`/`raid_family_key`/
-`estimated_gold`/`raid_difficulty` can't be backfilled for old rows after the
-fact — confirmed live when asked to backfill the first two, this is a hard
-limitation, not just unimplemented. `raid_difficulty` specifically also
-can't be safely *reverse-derived* from `raid_family_key`+`estimated_gold`
-alone even if it could be backfilled — a family+gold combination isn't
-always unique (e.g. Serca's Corvus Tul Rak Normal and Witch of Agony Serca
-Nightmare are both 21,000), so an old row's difficulty stays genuinely
-unknown rather than guessed.
+`log_id`). This means `below_min_dps`/`is_bus`/`raid_family_key`/`estimated_gold`
+can't be backfilled for old rows after the fact — confirmed live when asked to
+backfill the first two, this is a hard limitation, not just unimplemented.
+
+`raid_difficulty` turned out to be a partial exception: it **can** often be
+reverse-derived from `raid_family_key`+`estimated_gold` alone, *except* where
+a family+gold combination isn't unique (confirmed 3 such collisions
+system-wide: Serca's Corvus Tul Rak Normal / Witch of Agony Serca Nightmare
+both 21,000; Aegir Extreme's and Brelshaza Extreme's own Hard/Nightmare both
+45,000 each — none of the Extreme collisions affect the gold split, since
+Extreme's split doesn't depend on difficulty anyway). A one-time backfill
+(2026-08-31) applied this to every unambiguous existing row — 205 of 233
+null-`raid_difficulty` gold-bearing rows at the time, including all 66
+Kazeros Hard rows. The remaining ~28 genuinely ambiguous rows are left
+`null` on purpose and fall back to the 50/50 default, same as before.
 
 ## `gold_earners`
 

@@ -39,6 +39,15 @@ export const RAID_FAMILIES = [
     // treat Extreme clears as always-counted rather than competing for one
     // of a gold-earner character's 3 weekly slots.
     alwaysPaysGold: true,
+    // Confirmed: Extreme raid gold pays 100% Unbound at every difficulty
+    // tier — every entry in `difficulties` below, not a subset the way
+    // Serca/Kazeros restrict this to just their harder tiers. See
+    // ALWAYS_FULLY_UNBOUND_GOLD_FAMILY_KEYS below and splitGold()'s
+    // comment in goldEstimate.js — because *every* difficulty here is
+    // fully-unbound, a clear from this family is 100% Unbound even when
+    // its specific difficulty couldn't be determined (e.g. an old row
+    // whose exact Extreme Hard-vs-Nightmare tier is ambiguous by gold
+    // value alone — 45,000 either way — doesn't matter for the split).
     // Ordered easiest -> hardest — used by challengeRaids.js to find the
     // hardest difficulty a given gear score qualifies for. Every family
     // below has one of these; see the file-level comment for why it's a
@@ -47,6 +56,7 @@ export const RAID_FAMILIES = [
     // boss name, not to enumerate a family's full difficulty set — several
     // gates have no restriction at all, i.e. apply to every difficulty).
     difficulties: ['Extreme Normal', 'Extreme Hard', 'Extreme Nightmare'],
+    fullyUnboundDifficulties: ['Extreme Normal', 'Extreme Hard', 'Extreme Nightmare'],
     // Same boss name as regular Aegir Gate 2 below, but a separate weekly
     // clear — see the file-level comment on why this needs the
     // difficulty-restricted alias form instead of a plain string.
@@ -61,9 +71,11 @@ export const RAID_FAMILIES = [
     // boss ("Phantom Manifester Brelshaza"), no Extreme equivalent of Gate
     // 1 ("Narok the Butcher").
     hideGateNumber: true,
-    // See aegir-extreme's identical comment above.
+    // See aegir-extreme's identical comment above (100% Unbound at every
+    // difficulty tier).
     alwaysPaysGold: true,
     difficulties: ['Extreme Normal', 'Extreme Hard', 'Extreme Nightmare'],
+    fullyUnboundDifficulties: ['Extreme Normal', 'Extreme Hard', 'Extreme Nightmare'],
     // Same boss name as regular Brelshaza Gate 2 below, but a separate
     // weekly clear — see the file-level comment on why this needs the
     // difficulty-restricted alias form instead of a plain string.
@@ -208,6 +220,22 @@ export const CHARACTER_BOUND_GOLD_FAMILY_KEYS = new Set(
  * set itself — splitGold() is what actually decides the fallback. */
 export const FULLY_UNBOUND_GOLD_KEYS = new Set(
   RAID_FAMILIES.flatMap((f) => (f.fullyUnboundDifficulties ?? []).map((d) => `${f.key}|${d}`)),
+);
+
+/** Family keys where *every* difficulty the family offers pays 100%
+ * Unbound (currently just the two Extreme families) — as opposed to
+ * Serca/Kazeros, where only their harder tiers do and Normal stays 50/50.
+ * Because there's no difficulty left that *isn't* fully-unbound, a clear
+ * from one of these families is 100% Unbound even when its specific
+ * difficulty is unknown/ambiguous (e.g. an old row whose exact Extreme
+ * Hard-vs-Nightmare tier can't be told apart by gold value alone — both
+ * are 45,000) — splitGold() checks this before falling back to the 50/50
+ * default, so a null `difficulty` doesn't wrongly cost these families
+ * their confirmed split the way it would for Serca/Kazeros. */
+export const ALWAYS_FULLY_UNBOUND_GOLD_FAMILY_KEYS = new Set(
+  RAID_FAMILIES.filter(
+    (f) => f.fullyUnboundDifficulties && f.difficulties.every((d) => f.fullyUnboundDifficulties.includes(d)),
+  ).map((f) => f.key),
 );
 
 /**
