@@ -1,7 +1,8 @@
 import { Events } from 'discord.js';
 import { createDiscordClient, loginDiscordClient } from './discord/client.js';
-import { startPolling } from './scheduler/poller.js';
+import { startPolling, startChallengeExpiryChecking } from './scheduler/poller.js';
 import { startWeeklyResetSchedule } from './scheduler/weeklyReset.js';
+import { startPresenceUpdates } from './discord/presence.js';
 import { startOAuthServer } from './web/server.js';
 import { closeAllActiveRounds } from './discord/commands/guessParse.js';
 import { config } from './config.js';
@@ -49,9 +50,17 @@ client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   startPolling(client);
-  console.log(`Polling every ${config.pollIntervalMinutes} minute(s).`);
+  console.log(
+    `Polling Gold Earners every ${config.goldEarnerPollIntervalMinutes} minute(s), ` +
+      `everyone else every ${config.otherPollIntervalMinutes} minute(s).`,
+  );
+
+  startChallengeExpiryChecking(client);
+  console.log(`Checking for expired challenges every ${config.challengeExpiryCheckIntervalMinutes} minute(s).`);
 
   startWeeklyResetSchedule(client);
+
+  startPresenceUpdates(client);
 });
 
 // Every Fly deploy sends SIGTERM to the old machine before killing it —

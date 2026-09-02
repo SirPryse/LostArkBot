@@ -12,6 +12,22 @@ export async function getActiveChallengesForCharacter(trackedCharacterId) {
   return rows;
 }
 
+/** Every active challenge across every character, with each row's owning
+ * guild_id attached — the decoupled expiry sweep's data source
+ * (poller.js's runChallengeExpiryTick). Unlike getActiveChallengesForCharacter,
+ * this isn't scoped to a poll tick reaching any particular character, so a
+ * character that's stopped playing (or landed in the slower non-earner
+ * poll tier) still gets its stale challenges failed close to on time. */
+export async function getAllActiveChallenges() {
+  const { rows } = await pool.query(`
+    select c.*, tc.guild_id
+    from challenges c
+    join tracked_characters tc on tc.id = c.tracked_character_id
+    where c.status = 'active'
+  `);
+  return rows;
+}
+
 /**
  * Persists an Accepted challenge for one gate. Multiple different-gate
  * challenges can be active on the same character at once — only a

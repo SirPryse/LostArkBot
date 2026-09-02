@@ -1,10 +1,15 @@
 import path from 'node:path';
 import { EmbedBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
-import { listEnabledWithAccount, updateLastSeen, getNameAndClassById } from '../db/trackedCharacters.js';
+import {
+  listEnabledGoldEarnersWithAccount,
+  listEnabledNonGoldEarnersWithAccount,
+  updateLastSeen,
+  getNameAndClassById,
+} from '../db/trackedCharacters.js';
 import { markNeedsReauth } from '../db/linkedAccounts.js';
 import { getAnnouncementChannel } from '../db/guildSettings.js';
 import { recordClear } from '../db/clearHistory.js';
-import { getActiveChallengesForCharacter, resolveChallenge } from '../db/challenges.js';
+import { getActiveChallengesForCharacter, getAllActiveChallenges, resolveChallenge } from '../db/challenges.js';
 import { getBetCounts } from '../db/challengeBets.js';
 import { claim, setMessage, get as getGroupPost } from '../db/raidGroupPosts.js';
 import { getCharacterLogs } from '../lostarkbible/client.js';
@@ -340,6 +345,62 @@ export async function expireStaleChallenges(discordClient, channelId, activeChal
   return survivors;
 }
 
+// Re-entrancy guard for runChallengeExpiryTick, same pattern as the two
+// poll tiers' own flags below.
+let tickingChallengeExpiry = false;
+
+/**
+ * The decoupled expiry sweep — checks every active challenge across every
+ * character in one pass, on its own schedule, independent of either poll
+ * tier's cadence. Exists so a challenge's ~30-minute post-reset failure
+ * window (CHALLENGE_EXPIRY_BUFFER_MS) doesn't also inherit whichever poll
+ * tier its character happens to be in — before this existed, expiry was
+ * only checked as a side effect of that character's own poll tick, so a
+ * non-Gold-Earner character (the slower, hourly tier) could take up to an
+ * extra hour past the buffer to actually get marked failed.
+ *
+ * Groups by guild_id and resolves each guild's announcement channel once
+ * (cached for the rest of this tick) rather than once per challenge — the
+ * same "don't re-query the same guild's settings over and over" lesson
+ * /bonk's slowness investigation surfaced. Reuses expireStaleChallenges()
+ * verbatim per guild's group; that function itself doesn't change at all.
+ */
+export async function runChallengeExpiryTick(discordClient) {
+  if (tickingChallengeExpiry) {
+    console.warn('Challenge expiry tick already in progress, skipping this trigger.');
+    return;
+  }
+  tickingChallengeExpiry = true;
+  try {
+    const allActive = await getAllActiveChallenges();
+    if (allActive.length === 0) return;
+
+    const byGuild = new Map(); // guild_id -> challenge[]
+    for (const challenge of allActive) {
+      if (!byGuild.has(challenge.guild_id)) byGuild.set(challenge.guild_id, []);
+      byGuild.get(challenge.guild_id).push(challenge);
+    }
+
+    const channelIdByGuild = new Map(); // cached per guild for this tick
+    for (const [guildId, challenges] of byGuild) {
+      if (!channelIdByGuild.has(guildId)) {
+        channelIdByGuild.set(guildId, await getAnnouncementChannel(guildId));
+      }
+      const channelId = channelIdByGuild.get(guildId);
+      await expireStaleChallenges(discordClient, channelId, challenges);
+    }
+  } finally {
+    tickingChallengeExpiry = false;
+  }
+}
+
+export function startChallengeExpiryChecking(discordClient) {
+  const intervalMs = config.challengeExpiryCheckIntervalMinutes * 60 * 1000;
+  setInterval(() => {
+    runChallengeExpiryTick(discordClient).catch((err) => console.error('Challenge expiry tick failed:', err));
+  }, intervalMs);
+}
+
 /**
  * Checks one new clear against the character's active challenges (if any)
  * — matches at most one, since createChallenge() already prevents two
@@ -439,19 +500,15 @@ async function processCharacter(discordClient, row) {
   const newEntries = seenIndex === -1 ? entries : entries.slice(0, seenIndex);
 
   const channelId = await getAnnouncementChannel(row.guild_id);
-  // Fetched (and expiry-checked) once per character per tick regardless of
-  // whether this tick found any new clears — a character who simply stops
-  // playing mid-challenge still needs their stale challenges to actually
-  // expire close to on time, not only whenever they next clear something.
-  // A character can hold several active challenges at once now (one per
-  // gate) — checkChallengeProgress's own return value (the list, with a
-  // just-resolved entry removed) is what subsequent entries in the loop
-  // below check against, so several gates cleared in the same tick still
-  // each get credited correctly without re-querying.
-  let activeChallenges =
-    row.view_mode === 'competitive'
-      ? await expireStaleChallenges(discordClient, channelId, await getActiveChallengesForCharacter(row.id))
-      : [];
+  // Just a plain fetch now — expiry is no longer checked inline here (see
+  // runChallengeExpiryTick, its own decoupled timer), so this doesn't need
+  // to wait on a poll tick reaching this specific character to stay
+  // reasonably fresh. A character can hold several active challenges at
+  // once (one per gate) — checkChallengeProgress's own return value (the
+  // list, with a just-resolved entry removed) is what subsequent entries
+  // in the loop below check against, so several gates cleared in the same
+  // tick still each get credited correctly without re-querying.
+  let activeChallenges = row.view_mode === 'competitive' ? await getActiveChallengesForCharacter(row.id) : [];
 
   if (newEntries.length > 0) {
     if (channelId) {
@@ -500,39 +557,107 @@ async function processCharacter(discordClient, row) {
   await updateLastSeen(row.id, newest.id, identity);
 }
 
-let ticking = false;
-
 /**
- * One full pass over every enabled tracked character, sequentially with a
- * small delay between each to stay under lostark.bible's rate limit. A
- * per-character try/catch keeps one character's failure from aborting the
- * rest of the tick (BullMQ used to give this isolation for free via
- * per-job failure handling — now it's explicit).
+ * Sequentially processes one already-fetched list of tracked-character
+ * rows, with a small delay between each to stay under lostark.bible's
+ * rate limit. A per-character try/catch keeps one character's failure
+ * from aborting the rest of the tick (BullMQ used to give this isolation
+ * for free via per-job failure handling — now it's explicit). Shared by
+ * both tiers below — the only difference between them is which rows get
+ * fetched, not how they're processed.
  */
-export async function runPollTick(discordClient) {
-  if (ticking) {
-    console.warn('Poll tick already in progress, skipping this trigger.');
-    return;
-  }
-  ticking = true;
-  try {
-    const rows = await listEnabledWithAccount();
-    for (const row of rows) {
-      try {
-        await processCharacter(discordClient, row);
-      } catch (err) {
-        console.error(`Error polling tracked character ${row.id} (${row.character_name}):`, err);
-      }
-      await sleep(PER_CHARACTER_DELAY_MS);
+async function runTick(discordClient, rows) {
+  for (const row of rows) {
+    try {
+      await processCharacter(discordClient, row);
+    } catch (err) {
+      console.error(`Error polling tracked character ${row.id} (${row.character_name}):`, err);
     }
-  } finally {
-    ticking = false;
+    await sleep(PER_CHARACTER_DELAY_MS);
   }
 }
 
+// Two-tier polling, per explicit design decision: Gold Earner characters
+// (see gold_earners table) are checked far more often than everyone else,
+// since they're the ones whose clears actually count toward the
+// estimated-gold stat and drive /challenge — a delayed announcement there
+// is far more noticeable than for an alt nobody's watching closely.
+// listEnabledGoldEarnersWithAccount()/listEnabledNonGoldEarnersWithAccount()
+// are mutually exclusive by construction (a tracked_characters row can
+// never satisfy both queries), so the same character is never processed by
+// both tiers at once — that's what makes it safe for these two to run on
+// fully independent schedules/locks below, rather than needing to share one.
+let tickingGoldEarners = false;
+let tickingOthers = false;
+
+export async function runGoldEarnerPollTick(discordClient) {
+  if (tickingGoldEarners) {
+    console.warn('Gold Earner poll tick already in progress, skipping this trigger.');
+    return;
+  }
+  tickingGoldEarners = true;
+  try {
+    await runTick(discordClient, await listEnabledGoldEarnersWithAccount());
+  } finally {
+    tickingGoldEarners = false;
+  }
+}
+
+export async function runOtherPollTick(discordClient) {
+  if (tickingOthers) {
+    console.warn('Other poll tick already in progress, skipping this trigger.');
+    return;
+  }
+  tickingOthers = true;
+  try {
+    await runTick(discordClient, await listEnabledNonGoldEarnersWithAccount());
+  } finally {
+    tickingOthers = false;
+  }
+}
+
+/** Triggers both tiers together — /check-now's "check everyone right now"
+ * without waiting for either schedule. Each tier still guards itself
+ * independently (see above): if one's already mid-run from the automatic
+ * schedule, that one simply skips with its own warning, same as before
+ * this tier split existed — this doesn't need (or have) a guard of its
+ * own. */
+export async function runPollTick(discordClient) {
+  await Promise.all([runGoldEarnerPollTick(discordClient), runOtherPollTick(discordClient)]);
+}
+
+// When each tier's *next automatic* tick is due — read by presence.js to
+// show a live countdown in the bot's status. Sourced from the interval
+// timing itself (recomputed right when each interval fires), not from how
+// long a tick took to run, since "next scheduled tick" and "still
+// processing the last one" are different questions — a slow tier-B run
+// doesn't mean tier-B's next slot moved. `null` until startPolling() has
+// actually run once.
+let nextGoldEarnerPollAt = null;
+let nextOtherPollAt = null;
+
+/** `{ nextGoldEarnerPollAt, nextOtherPollAt }` — both epoch ms, or null
+ * before startPolling() has run. presence.js polls this to redraw the
+ * countdown; kept as a plain getter rather than an event emitter since a
+ * once-every-30s read is cheap and this avoids adding a listener that
+ * would need cleanup. */
+export function getNextPollTimes() {
+  return { nextGoldEarnerPollAt, nextOtherPollAt };
+}
+
 export function startPolling(discordClient) {
-  const intervalMs = config.pollIntervalMinutes * 60 * 1000;
+  const goldEarnerIntervalMs = config.goldEarnerPollIntervalMinutes * 60 * 1000;
+  const otherIntervalMs = config.otherPollIntervalMinutes * 60 * 1000;
+
+  nextGoldEarnerPollAt = Date.now() + goldEarnerIntervalMs;
+  nextOtherPollAt = Date.now() + otherIntervalMs;
+
   setInterval(() => {
-    runPollTick(discordClient).catch((err) => console.error('Poll tick failed:', err));
-  }, intervalMs);
+    nextGoldEarnerPollAt = Date.now() + goldEarnerIntervalMs;
+    runGoldEarnerPollTick(discordClient).catch((err) => console.error('Gold Earner poll tick failed:', err));
+  }, goldEarnerIntervalMs);
+  setInterval(() => {
+    nextOtherPollAt = Date.now() + otherIntervalMs;
+    runOtherPollTick(discordClient).catch((err) => console.error('Other poll tick failed:', err));
+  }, otherIntervalMs);
 }

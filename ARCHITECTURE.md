@@ -252,9 +252,11 @@ this is set once.
 
 ### `/check-now` — `checkNow.js`
 Admin-only debug command — fires `runPollTick()` immediately instead of
-waiting for the timer, fire-and-forget (the reply doesn't block on the full
-pass finishing). Exists so a fresh `/track-character` doesn't need to wait up
-to `POLL_INTERVAL_MINUTES` to see whether tracking actually worked.
+waiting for either tier's timer, fire-and-forget (the reply doesn't block on
+the full pass finishing). Triggers both polling tiers together (see
+`poller.js`'s two-tier design below). Exists so a fresh `/track-character`
+doesn't need to wait up to `OTHER_POLL_INTERVAL_MINUTES` to see whether
+tracking actually worked.
 
 ### `/recent-raids` — `recentRaids.js`
 Straight passthrough of `getCharacterLogs()` page 1 (no `bosses` filter
@@ -388,36 +390,71 @@ same way.
 ## Background jobs
 
 ### `poller.js`
-One pass over every *enabled* tracked character (`listEnabledWithAccount()`),
-sequential with a flat 200ms delay between each — replaced an earlier BullMQ
+**Two independent polling tiers**, per explicit design decision: designated
+Gold Earner characters (`listEnabledGoldEarnersWithAccount()`) are checked
+every `GOLD_EARNER_POLL_INTERVAL_MINUTES` (default 5), everyone else
+(`listEnabledNonGoldEarnersWithAccount()`) every `OTHER_POLL_INTERVAL_MINUTES`
+(default 60) — Gold Earners are the characters whose clears actually count
+toward the estimated-gold stat and drive `/challenge`, so a delayed
+announcement there is far more noticeable than for an alt nobody's watching
+closely. The two queries are mutually exclusive by construction (a
+`tracked_characters` row can never satisfy both), so the same character is
+never processed by both tiers at once — that's what makes it safe for
+`runGoldEarnerPollTick`/`runOtherPollTick` to run on fully independent
+schedules with independent re-entrancy locks, rather than needing to share
+one. `runPollTick` (still exported, used by `/check-now`) just triggers
+both tiers together via `Promise.all` — each tier's own lock still applies,
+so if one's already mid-run from its automatic schedule, `/check-now`'s
+call to that tier simply skips with its own warning. `startPolling()` also
+records each tier's next-fire timestamp (`getNextPollTimes()`), which
+`presence.js` reads to show a live countdown in the bot's Discord status.
+
+Within one tier's tick, it's the same sequential pass over its character
+list, with a flat 200ms delay between each — replaced an earlier BullMQ
 setup that gave per-job isolation for free; that isolation is now explicit
-(a per-character try/catch inside `runPollTick`, so one character's failure
-doesn't abort the rest of the batch). For each character: fetch page 1,
+(a per-character try/catch inside the shared `runTick()` helper, so one
+character's failure doesn't abort the rest of the batch). For each character: fetch page 1,
 diff against `last_seen_log_id` to find genuinely new entries, announce each
 (`announceClear()`, which also handles the "same log id across party
 members" consolidation via `raid_group_posts`' claim-then-append pattern),
 and for `competitive` characters, compute and persist `below_min_dps`
 (DPS-role + a real `minDps.js` threshold only — `null` otherwise, matching
 `clearHistory.js`'s "unknown, not false" philosophy) and pass through the
-API's own `isBus` flag. Also checks the character's active `/challenge`(s)
-(if any) every tick, fetched once per character rather than per entry — a
-character can hold several active challenges at once now, one per gate:
-`expireStaleChallenges()` first fails whichever are past their deadline
-(the next raid reset after each was Accepted) even if nothing new was
-cleared this tick, then each new competitive clear runs through
-`checkChallengeProgress()`, which matches at most one active challenge
-(duplicates for the same gate are prevented at creation) and fully
-resolves it on that first matching clear — falling short fails it, meeting
-the target completes it. Both functions also call `finalizeBetMessage()`
-on every resolution, locking that challenge's public bet post (if it has
-one — see `/challenge`'s betting flow) by disabling its Success/Failure
-buttons and appending the final tally + result. Both functions return the
-updated list (a resolved entry removed), which carries forward across the
-rest of that tick's entries so several gates cleared in one tick still
-each get credited correctly. Always calls `updateLastSeen()` at the end
-regardless of whether anything
+API's own `isBus` flag. Also fetches the character's active `/challenge`(s)
+(if any) every tick, once per character rather than per entry — a
+character can hold several active challenges at once now, one per gate.
+Each new competitive clear runs through `checkChallengeProgress()`, which
+matches at most one active challenge (duplicates for the same gate are
+prevented at creation) and fully resolves it on that first matching
+clear — falling short fails it, meeting the target completes it. It also
+calls `finalizeBetMessage()` on every resolution, locking that challenge's
+public bet post (if it has one — see `/challenge`'s betting flow) by
+disabling its Success/Failure buttons and appending the final tally +
+result. Its return value (the list, with a just-resolved entry removed)
+carries forward across the rest of that tick's entries so several gates
+cleared in one tick still each get credited correctly. Always calls
+`updateLastSeen()` at the end regardless of whether anything
 new was found, which is also how `class_name`/`gear_score`/`combat_power`/
 `role` stay fresh on `tracked_characters` even between actual clears.
+
+**Challenge expiry is its own decoupled third job**, `runChallengeExpiryTick()`
+(started via `startChallengeExpiryChecking()`, default every
+`CHALLENGE_EXPIRY_CHECK_INTERVAL_MINUTES` = 5) — it used to run inline
+inside `processCharacter` (piggybacking on whichever poll tier a character
+happened to be in), but that meant a non-Gold-Earner character's stale
+challenge could take up to an extra hour past its real deadline to
+actually get marked failed, once the slower 60-minute "everyone else" tier
+existed. Instead it fetches every active challenge across every character
+in one pass (`getAllActiveChallenges()`), groups by guild, resolves each
+guild's announcement channel once (cached for the rest of that tick —
+same lesson `/bonk`'s slowness investigation surfaced: don't re-query the
+same guild's settings per character), and calls `expireStaleChallenges()`
+per guild's group — that function itself is unchanged, just called from a
+different place. `expireStaleChallenges()` fails whichever challenges are
+past their deadline (the next raid reset after each was Accepted, plus
+`CHALLENGE_EXPIRY_BUFFER_MS` — see that constant's own comment for why: it
+avoids racing `weeklyReset.js`'s channel wipe below, which fires at the
+exact same reset instant).
 
 ### `weeklyReset.js`
 Fires once at Wednesday 10:00 UTC per guild with an announcement channel
@@ -432,6 +469,16 @@ the channel, award the top-3 guess-parse badges for the week that just
 ended, then post the champions embed. No explicit leaderboard "reset" step
 exists anymore — moving `last_reset_at` forward is itself what makes next
 week's queries stop seeing old rows.
+
+### `presence.js`
+Purely cosmetic — redraws the bot's Discord status every 30 seconds (well
+under Discord's presence-update rate limit) to show a live-feeling
+countdown to each polling tier's next tick, e.g. `Watching 🪙 4:12 · 👥
+41:57`, reading the timestamps `poller.js`'s `startPolling()` records via
+`getNextPollTimes()`. Discord has no actual live-countdown widget — this
+just rewrites static text often enough to look like one. `setActivity()`
+failures are logged, never thrown, since losing the status text shouldn't
+take the bot down.
 
 ## Bot lifecycle
 

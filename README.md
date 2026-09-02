@@ -31,11 +31,15 @@ project — see [SCHEMA.md](SCHEMA.md) for the DB contract between the two.
    npm run dev
    ```
 
-The scheduler polls in-process on a plain interval (`POLL_INTERVAL_MINUTES`,
-default 10) — no queue or Redis involved. This is a single-instance bot, so a
-distributed job queue was pure overhead; it used to run on BullMQ/Upstash
-Redis but that got dropped after burning through Upstash's free-tier request
-cap in about a week from the per-character job fan-out.
+The scheduler polls in-process on two plain intervals — no queue or Redis
+involved. Designated Gold Earner characters are checked every
+`GOLD_EARNER_POLL_INTERVAL_MINUTES` (default 5); everyone else every
+`OTHER_POLL_INTERVAL_MINUTES` (default 60) — Gold Earners are the characters
+whose clears actually count toward the estimated-gold stat and drive
+`/challenge`, so they get checked far more often. This is a single-instance
+bot, so a distributed job queue was pure overhead; it used to run on
+BullMQ/Upstash Redis but that got dropped after burning through Upstash's
+free-tier request cap in about a week from the per-character job fan-out.
 
 ## Manual test
 
@@ -50,8 +54,8 @@ exists:
    recent clear(s) from page 1 (not full history — just what's visible on
    that page), so something shows up in Discord right after registering
    rather than staying silent. See `src/scheduler/poller.js`.
-3. Use `/check-now` to force a poll cycle any time without waiting for
-   `POLL_INTERVAL_MINUTES`.
+3. Use `/check-now` to force a poll cycle (both tiers) any time without
+   waiting for `GOLD_EARNER_POLL_INTERVAL_MINUTES`/`OTHER_POLL_INTERVAL_MINUTES`.
 4. To see it announce again, null out `last_seen_log_id` for that row and run
    `/check-now` — it'll re-post the same recent clears as if seeing them for
    the first time.

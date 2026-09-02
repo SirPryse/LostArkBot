@@ -24,6 +24,71 @@ export async function listEnabledWithAccount() {
   return rows;
 }
 
+// Shared by both tier queries below — a tracked_characters row counts as a
+// Gold Earner if its (linked_account_id, character_name, region) shows up
+// in gold_earners. gold_earners is account-scoped, not tied to
+// tracked_characters by FK (see that table's migration comment), so this
+// has to join back on the natural key rather than an id.
+const IS_GOLD_EARNER_EXISTS = `
+  exists (
+    select 1 from gold_earners ge
+    where ge.linked_account_id = tc.linked_account_id
+      and ge.character_name = tc.character_name
+      and ge.region = tc.region
+  )
+`;
+
+/** Same shape as listEnabledWithAccount(), scoped to just the designated
+ * Gold Earner characters — poller.js's fast tier (every few minutes by
+ * default). These are the characters whose clears actually count toward
+ * the estimated-gold stat and drive /challenge, so a delayed announcement
+ * here is far more noticeable than for an alt nobody's watching closely. */
+export async function listEnabledGoldEarnersWithAccount() {
+  const { rows } = await pool.query(`
+    select
+      tc.id,
+      tc.character_name,
+      tc.region,
+      tc.guild_id,
+      tc.last_seen_log_id,
+      tc.view_mode,
+      la.id as linked_account_id,
+      la.access_token,
+      la.token_expires_at,
+      la.status as account_status
+    from tracked_characters tc
+    join linked_accounts la on la.id = tc.linked_account_id
+    where tc.enabled = true and ${IS_GOLD_EARNER_EXISTS}
+  `);
+  return rows;
+}
+
+/** The complement of listEnabledGoldEarnersWithAccount() — every enabled
+ * character that ISN'T a designated Gold Earner. poller.js's slow tier
+ * (every hour by default). Mutually exclusive with the Gold Earner tier
+ * by construction (a row can never satisfy both this and the `exists`
+ * check above), so the same character is never processed by both tiers
+ * in the same tick. */
+export async function listEnabledNonGoldEarnersWithAccount() {
+  const { rows } = await pool.query(`
+    select
+      tc.id,
+      tc.character_name,
+      tc.region,
+      tc.guild_id,
+      tc.last_seen_log_id,
+      tc.view_mode,
+      la.id as linked_account_id,
+      la.access_token,
+      la.token_expires_at,
+      la.status as account_status
+    from tracked_characters tc
+    join linked_accounts la on la.id = tc.linked_account_id
+    where tc.enabled = true and not ${IS_GOLD_EARNER_EXISTS}
+  `);
+  return rows;
+}
+
 /** Competitive-view characters (need real stats to show, compact ones don't
  * record them) in one guild with an active, usable linked account — the
  * eligible pool for /guess-parse. */
