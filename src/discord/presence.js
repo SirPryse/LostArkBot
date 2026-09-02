@@ -26,16 +26,15 @@ function formatMinutesRemaining(targetMs) {
 function buildStatusText() {
   const { nextGoldEarnerPollAt, nextOtherPollAt } = getNextPollTimes();
   return (
-    `Next gold roster polling in ${formatMinutesRemaining(nextGoldEarnerPollAt)}. ` +
-    `Next alt roster polling in ${formatMinutesRemaining(nextOtherPollAt)}.`
+    `Gold: ${formatMinutesRemaining(nextGoldEarnerPollAt)} | ` +
+    `Alt: ${formatMinutesRemaining(nextOtherPollAt)}`
   );
 }
 
 /** Starts redrawing the bot's Watching-status with a live countdown to
- * each polling tier's next tick — e.g. "Watching Next gold roster polling
- * in 4 minutes. Next alt roster polling in 41 minutes." Purely cosmetic
- * (setActivity failures are logged, never thrown) since losing the status
- * shouldn't take the bot down. */
+ * each polling tier's next tick — e.g. "Watching Gold: 4 minutes | Alt:
+ * 41 minutes." Purely cosmetic (setActivity failures are logged, never
+ * thrown) since losing the status shouldn't take the bot down. */
 export function startPresenceUpdates(discordClient) {
   const update = () => {
     try {
