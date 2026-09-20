@@ -288,9 +288,10 @@ had `clear_history` rows to show in the first place.
 ### `/my-stats` — `myStats.js`
 The combined, humor-flavored version of the above: pools every
 `competitive`-view character the *account* has in the guild (`getAggregateStats`
-merges DPS and support percentiles into one tally — support's
-contribution axis has no DPS equivalent to merge against, so it's dropped
-here, unlike `/character-page` which keeps both), plus a **Battle Record**
+merges DPS percentile, support uptime percentile, and support contribution
+percentile into one tally — a support clear can contribute up to two tier
+readings, unlike `/character-page` which keeps Uptime and Contribution as
+separate badge fields), plus a **Battle Record**
 section (deaths, bus rides, below-min-DPS count — see `clearHistory.js`'s
 nullable-boolean design below), a **Guess-Parse** section
 (`getLifetimeStats()`, unbounded — a permanent record, unlike the weekly

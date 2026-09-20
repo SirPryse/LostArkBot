@@ -89,10 +89,15 @@ export async function getStats(trackedCharacterId, tierMins) {
 /**
  * Same shape as getStats, but pooled across every competitive-view tracked
  * character an account has in one guild instead of a single character —
- * used by /my-stats. DPS and support clears are merged into one `percentile`
- * tally on purpose (that's the whole point of the combined view); contribution
- * percentile isn't part of it since it's a support-only second axis with no
- * DPS equivalent to merge it against.
+ * used by /my-stats. DPS percentile, support uptime percentile, and support
+ * contribution percentile are all merged into one `tierCounts` tally on
+ * purpose (that's the whole point of the combined view) — a support clear
+ * contributes up to two tier readings (uptime + contribution) since those
+ * are genuinely separate axes, a DPS clear contributes one (percentile only,
+ * contribution_percentile is always null for DPS). tallyTiers already skips
+ * null values, so this falls out of just tallying both columns together
+ * rather than needing separate DPS/support-uptime/support-contribution
+ * branches.
  *
  * belowMinDpsCount / minDpsCheckableCount cover the "⚠️ Below Min DPS"
  * badge — checkable is the denominator (how many clears actually had a
@@ -104,7 +109,7 @@ export async function getStats(trackedCharacterId, tierMins) {
  */
 export async function getAggregateStats(linkedAccountId, guildId, tierMins) {
   const { rows } = await pool.query(
-    `select ch.percentile, ch.died, ch.below_min_dps, ch.is_bus
+    `select ch.percentile, ch.contribution_percentile, ch.died, ch.below_min_dps, ch.is_bus
      from clear_history ch
      join tracked_characters tc on tc.id = ch.tracked_character_id
      where tc.linked_account_id = $1 and tc.guild_id = $2 and tc.view_mode = 'competitive'`,
@@ -114,7 +119,7 @@ export async function getAggregateStats(linkedAccountId, guildId, tierMins) {
   return {
     total: rows.length,
     diedCount: rows.filter((r) => r.died).length,
-    tierCounts: tallyTiers(rows.map((r) => r.percentile), tierMins),
+    tierCounts: tallyTiers([...rows.map((r) => r.percentile), ...rows.map((r) => r.contribution_percentile)], tierMins),
     belowMinDpsCount: rows.filter((r) => r.below_min_dps === true).length,
     minDpsCheckableCount: rows.filter((r) => r.below_min_dps !== null).length,
     busCount: rows.filter((r) => r.is_bus === true).length,
