@@ -5,7 +5,15 @@
  * lostark.bible's API returns it (see raidFamilies.js for the same
  * convention), then by the `difficulty` string.
  *
- * Values sourced from a community-maintained spreadsheet. A boss/difficulty
+ * Values sourced from a community-maintained spreadsheet ("Lost Ark End
+ * Game Fight Data Sheets",
+ * https://docs.google.com/spreadsheets/d/19r5A56C8USONYF3AHfCZ8TLgrHuzenEuYH9I21OpTQo).
+ * Its method: team DPS = boss total HP / berserk timer, individual = team
+ * / number of DPS players (3 in a 4-player raid, 6 in an 8-player one) —
+ * a bare-minimum "just barely clears" number that ignores sidereals,
+ * synergies and stagger windows. For multi-phase fights the highest
+ * phase's figure is used. Every value here was re-checked against the
+ * sheet's 2026-11-20 update. A boss/difficulty
  * combo not listed here just means it isn't shown — not "0 required" — so
  * adding a new raid is just appending an entry, same pattern as
  * raidFamilies.js and bossImages.js.
@@ -60,6 +68,26 @@ const MIN_DPS = {
   'Mordum, the Abyssal Punisher': {
     Normal: 81_330_595,
     Hard: 147_709_013,
+    // Mordum Extreme (Act 3 Extreme). The sheet has no Extreme Normal
+    // figures yet, and Extreme Hard only has Phase 1 (Mordum) — Phase 2
+    // (Heart of Mordum) is blank, so this is the only known phase rather
+    // than the max-across-phases the other Extremes use.
+    'Extreme Normal': null,
+    'Extreme Hard': 836_623_372,
+  },
+  // Belgardin (Shadow Raid, 8-player so the team requirement is split
+  // across 6 DPS). Gate 1 is "Human Form", Gate 2 "Primordial Form" on the
+  // sheet; Gate 2 has a 13-minute berserk timer vs Gate 1's 10, which is
+  // why it's lower despite more HP.
+  'Belgardin, Arbiter of Death': {
+    Normal: 483_143_554,
+    Hard: 769_045_865,
+    Nightmare: 1_375_452_007,
+  },
+  'Phaetus An Kragma': {
+    Normal: 416_790_006,
+    Hard: 669_653_288,
+    Nightmare: 1_197_674_113,
   },
   'Abyss Lord Kazeros': {
     Normal: 99_279_498,
