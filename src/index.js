@@ -3,6 +3,7 @@ import { createDiscordClient, loginDiscordClient } from './discord/client.js';
 import { startPolling, startChallengeExpiryChecking } from './scheduler/poller.js';
 import { startWeeklyResetSchedule } from './scheduler/weeklyReset.js';
 import { startPresenceUpdates } from './discord/presence.js';
+import { startReauthNoticeUpdates, refreshAllReauthNotices } from './notify/reauthNotice.js';
 import { startOAuthServer } from './web/server.js';
 import { closeAllActiveRounds } from './discord/commands/guessParse.js';
 import { config } from './config.js';
@@ -44,7 +45,7 @@ const client = createDiscordClient();
 // Independent of the Discord gateway entirely — only touches lostark.bible
 // and Postgres, so it starts (and keeps working) regardless of Discord
 // connection state.
-const oauthServer = startOAuthServer();
+const oauthServer = startOAuthServer({ onLinked: () => refreshAllReauthNotices(client) });
 
 client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user.tag}`);
@@ -61,6 +62,8 @@ client.once(Events.ClientReady, () => {
   startWeeklyResetSchedule(client);
 
   startPresenceUpdates(client);
+
+  startReauthNoticeUpdates(client);
 });
 
 // Every Fly deploy sends SIGTERM to the old machine before killing it —

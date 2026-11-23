@@ -40,9 +40,39 @@ export async function getByDiscordUserId(discordUserId) {
   return rows[0] ?? null;
 }
 
+/** Returns true only when this call actually flipped the account from
+ * another status to 'needs_reauth' — lets the poller refresh the re-link
+ * notice once on the transition rather than on every character it skips. */
 export async function markNeedsReauth(id) {
-  await pool.query(
-    "update linked_accounts set status = 'needs_reauth', updated_at = now() where id = $1",
+  const { rowCount } = await pool.query(
+    "update linked_accounts set status = 'needs_reauth', updated_at = now() where id = $1 and status <> 'needs_reauth'",
     [id],
   );
+  return rowCount > 0;
+}
+
+/**
+ * Discord users with at least one enabled tracked character in this guild
+ * whose lostark.bible link has expired (or been flagged needs_reauth), or
+ * will expire within `warnWithinDays`. lostark.bible tokens last 90 days
+ * and have no refresh token, so re-running /link-account is the only fix.
+ * Revoked accounts are left out — that was a deliberate unlink.
+ */
+export async function listReauthCandidatesForGuild(guildId, warnWithinDays) {
+  const { rows } = await pool.query(
+    `select la.discord_user_id,
+            la.token_expires_at,
+            (la.status = 'needs_reauth' or la.token_expires_at <= now()) as expired,
+            count(tc.id)::int as character_count
+       from linked_accounts la
+       join tracked_characters tc on tc.linked_account_id = la.id
+      where tc.guild_id = $1
+        and tc.enabled = true
+        and la.status <> 'revoked'
+        and (la.status = 'needs_reauth' or la.token_expires_at <= now() + make_interval(days => $2))
+      group by la.id
+      order by la.token_expires_at`,
+    [guildId, warnWithinDays],
+  );
+  return rows;
 }

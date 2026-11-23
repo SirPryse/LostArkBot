@@ -98,7 +98,7 @@ function page({ status, icon, title, body, showDiscordButton = false }) {
 </html>`;
 }
 
-async function handleCallback(url, res) {
+async function handleCallback(url, res, onLinked) {
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
   const error = url.searchParams.get('error');
@@ -142,6 +142,11 @@ async function handleCallback(url, res) {
       tokenExpiresAt: new Date(Date.now() + token.expires_in * 1000),
       scopes: token.scope,
     });
+    // Fire-and-forget: drops this user from the re-link notice. Never
+    // blocks or fails the success page.
+    Promise.resolve()
+      .then(() => onLinked?.(pending.discordUserId))
+      .catch((err) => console.error('onLinked hook failed:', err));
 
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(page({
@@ -159,12 +164,13 @@ async function handleCallback(url, res) {
   }
 }
 
-export function startOAuthServer() {
+/** `onLinked(discordUserId)` runs after a successful link/re-link. */
+export function startOAuthServer({ onLinked } = {}) {
   const server = createServer((req, res) => {
     const url = new URL(req.url, `http://localhost:${config.oauthPort}`);
 
     if (url.pathname === '/oauth/callback' && req.method === 'GET') {
-      handleCallback(url, res);
+      handleCallback(url, res, onLinked);
       return;
     }
 

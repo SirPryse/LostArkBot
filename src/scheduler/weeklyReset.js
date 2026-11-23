@@ -3,6 +3,7 @@ import { listAnnouncementChannels, claimWeeklyReset, getLastResetAt } from '../d
 import { getLeaderboard } from '../db/guessGame.js';
 import { awardBadge } from '../db/guessLeaderboardBadges.js';
 import { clearChannel } from '../utils/clearChannel.js';
+import { repostReauthNotice } from '../notify/reauthNotice.js';
 
 // Lost Ark's weekly raid-lockout reset — confirmed live: the daily reset is
 // a fixed 10:00 UTC across every region (Game Time Master's game-data.js,
@@ -90,6 +91,11 @@ export async function runWeeklyReset(discordClient, guildId, channelId) {
     await channel
       .send({ embeds: [buildWeeklyChampionsEmbed(topThree)] })
       .catch((err) => console.error(`Weekly reset: failed to post champions embed for guild ${guildId}:`, err));
+
+    // The clear above wiped the re-link notice too — put it back.
+    await repostReauthNotice(discordClient, guildId, channelId).catch((err) =>
+      console.error(`Weekly reset: failed to repost re-link notice for guild ${guildId}:`, err),
+    );
   }
 }
 

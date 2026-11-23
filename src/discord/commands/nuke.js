@@ -7,6 +7,8 @@ import {
   ButtonStyle,
 } from 'discord.js';
 import { clearChannel } from '../../utils/clearChannel.js';
+import { getAnnouncementChannel } from '../../db/guildSettings.js';
+import { repostReauthNotice } from '../../notify/reauthNotice.js';
 
 const CONFIRM_PREFIX = 'nuke-confirm';
 const CANCEL_PREFIX = 'nuke-cancel';
@@ -77,6 +79,14 @@ export const nukeCommand = {
           // messages) even with the caps above — the deletions themselves still
           // happened, just log it instead of throwing an unhandled rejection.
           console.error('nuke: failed to post final status (token likely expired):', err);
+        }
+
+        // Nuking the announcement channel also wiped the re-link notice.
+        const announcementChannelId = await getAnnouncementChannel(interaction.guildId).catch(() => null);
+        if (announcementChannelId === interaction.channelId) {
+          await repostReauthNotice(interaction.client, interaction.guildId, interaction.channelId).catch((err) =>
+            console.error('nuke: failed to repost re-link notice:', err),
+          );
         }
       },
     },

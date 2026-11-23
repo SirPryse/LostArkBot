@@ -28,6 +28,16 @@ export async function setAnnouncementChannel(guildId, channelId) {
   );
 }
 
+/** The guild's current "re-link needed" post id — see notify/reauthNotice.js. */
+export async function getReauthNoticeMessageId(guildId) {
+  const { rows } = await pool.query('select reauth_notice_message_id from guild_settings where guild_id = $1', [guildId]);
+  return rows[0]?.reauth_notice_message_id ?? null;
+}
+
+export async function setReauthNoticeMessageId(guildId, messageId) {
+  await pool.query('update guild_settings set reauth_notice_message_id = $2 where guild_id = $1', [guildId, messageId]);
+}
+
 // Guards weeklyReset.js against double-firing for the same guild — confirmed
 // live this can happen (two full runWeeklyReset() cycles landed ~4s apart
 // for the same guild, doubling everyone's badge count; exact trigger
