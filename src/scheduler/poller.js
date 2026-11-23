@@ -24,7 +24,7 @@ import {
 } from '../notify/clearMessage.js';
 import { getMinDps } from '../notify/minDps.js';
 import { getGoldEstimate } from '../notify/goldEstimate.js';
-import { getRaidFamilyForBoss, getFriendlyBossName } from '../notify/raidFamilies.js';
+import { getRaidFamilyForBoss, getFriendlyBossName, ALL_KNOWN_BOSSES } from '../notify/raidFamilies.js';
 import { lastWednesdayReset } from '../notify/raidWeek.js';
 import { getBossImagePath } from '../notify/bossImages.js';
 import { getClassEmoji } from '../notify/classIcons.js';
@@ -58,6 +58,11 @@ const CLAIM_WAIT_INTERVAL_MS = 500;
 // pure Redis-request overhead we didn't need — see the Upstash free-tier
 // blowout this replaced), so it's just a flat delay between characters.
 const PER_CHARACTER_DELAY_MS = 200;
+// Catch-up after a gap (expired link renewed, bot down): clears older than
+// this are recorded silently instead of announced — see processCharacter.
+const BACKLOG_AGE_MS = 6 * 60 * 60 * 1000;
+// 25 entries per page — 10 pages covers far more than a few weeks of clears.
+const CATCH_UP_MAX_PAGES = 10;
 
 // setMessage is a plain DB write immediately after a successful Discord
 // send — if it fails (a DB blip, not a Discord problem, since we already
@@ -512,10 +517,22 @@ async function processCharacter(discordClient, row) {
     return;
   }
 
-  // If the last-seen id fell off page 1 (more clears happened than one page
-  // holds), we can only announce what's visible on this page.
   const seenIndex = entries.findIndex((entry) => entry.id === row.last_seen_log_id);
-  const newEntries = seenIndex === -1 ? entries : entries.slice(0, seenIndex);
+  const newEntries =
+    seenIndex !== -1 ? entries.slice(0, seenIndex) : await fetchEntriesSinceLastSeen(accessToken, row, entries);
+
+  // Anything older than BACKLOG_AGE_MS is a catch-up (account was expired,
+  // bot was down) rather than a live clear: record it for stats/gold, but
+  // don't post it or score challenges with it. Before this, a re-link
+  // dumped every missed clear into the channel at once (seen live: 50 posts
+  // within the first hour for one account).
+  const cutoff = Date.now() - BACKLOG_AGE_MS;
+  const backlog = newEntries.filter((entry) => entry.timestamp < cutoff);
+  const fresh = newEntries.filter((entry) => entry.timestamp >= cutoff);
+  if (backlog.length > 0 && row.view_mode === 'competitive') {
+    for (const entry of [...backlog].reverse()) await recordClearForEntry(row.id, entry);
+    console.log(`Caught up ${backlog.length} missed clear(s) for ${row.character_name} without announcing.`);
+  }
 
   const channelId = await getAnnouncementChannel(row.guild_id);
   // Just a plain fetch now — expiry is no longer checked inline here (see
@@ -528,44 +545,12 @@ async function processCharacter(discordClient, row) {
   // tick still each get credited correctly without re-querying.
   let activeChallenges = row.view_mode === 'competitive' ? await getActiveChallengesForCharacter(row.id) : [];
 
-  if (newEntries.length > 0) {
+  if (fresh.length > 0) {
     if (channelId) {
-      for (const entry of [...newEntries].reverse()) {
+      for (const entry of [...fresh].reverse()) {
         await announceClear(discordClient, row.guild_id, channelId, entry, row.view_mode);
         if (row.view_mode === 'competitive') {
-          // null (not true/false) for anything minDps.js has no opinion on
-          // — a support clear (their own `dps` stat is a different metric
-          // entirely, this threshold was never meant to apply to it) or a
-          // boss/difficulty with no recorded threshold yet. Same ✅/⚠️
-          // check already used for the live display badge in
-          // clearMessage.js/guessParse.js, just persisted here instead of
-          // only ever computed on the fly.
-          let belowMinDps = null;
-          if (getRole(entry) === 'dps') {
-            const minDps = getMinDps(entry.boss, entry.difficulty);
-            if (minDps !== null) belowMinDps = entry.dps < minDps;
-          }
-
-          // Same "not applicable" null-default as belowMinDps above —
-          // getRaidFamilyForBoss returns null for anything outside
-          // raidFamilies.js's tracked list, and getGoldEstimate returns
-          // null for a boss/difficulty RAID_DATA.md has no figure for yet.
-          const familyMatch = getRaidFamilyForBoss(entry.boss, entry.difficulty);
-          const raidFamilyKey = familyMatch?.family.key ?? null;
-          const estimatedGold = getGoldEstimate(entry.boss, entry.difficulty);
-
-          await recordClear(
-            row.id,
-            entry.percentile ?? null,
-            entry.contributionPercentile ?? null,
-            Boolean(entry.isDead),
-            belowMinDps,
-            entry.isBus ?? null,
-            raidFamilyKey,
-            estimatedGold,
-            entry.difficulty ?? null,
-          );
-
+          await recordClearForEntry(row.id, entry);
           activeChallenges = await checkChallengeProgress(discordClient, row.guild_id, channelId, entry, activeChallenges);
         }
       }
@@ -573,6 +558,69 @@ async function processCharacter(discordClient, row) {
   }
 
   await updateLastSeen(row.id, newest.id, identity);
+}
+
+/** One clear_history row for a log entry (competitive view mode only). */
+async function recordClearForEntry(trackedCharacterId, entry) {
+  // null (not true/false) for anything minDps.js has no opinion on — a
+  // support clear (their own `dps` stat is a different metric entirely,
+  // this threshold was never meant to apply to it) or a boss/difficulty
+  // with no recorded threshold yet. Same ✅/⚠️ check already used for the
+  // live display badge in clearMessage.js/guessParse.js, just persisted
+  // here instead of only ever computed on the fly.
+  let belowMinDps = null;
+  if (getRole(entry) === 'dps') {
+    const minDps = getMinDps(entry.boss, entry.difficulty);
+    if (minDps !== null) belowMinDps = entry.dps < minDps;
+  }
+
+  // Same "not applicable" null-default as belowMinDps above —
+  // getRaidFamilyForBoss returns null for anything outside raidFamilies.js's
+  // tracked list, and getGoldEstimate returns null for a boss/difficulty
+  // RAID_DATA.md has no figure for yet.
+  const familyMatch = getRaidFamilyForBoss(entry.boss, entry.difficulty);
+
+  await recordClear(
+    trackedCharacterId,
+    entry.percentile ?? null,
+    entry.contributionPercentile ?? null,
+    Boolean(entry.isDead),
+    belowMinDps,
+    entry.isBus ?? null,
+    familyMatch?.family.key ?? null,
+    getGoldEstimate(entry.boss, entry.difficulty),
+    entry.difficulty ?? null,
+  );
+}
+
+/**
+ * Every entry newer than the character's last-seen clear, when that clear
+ * is no longer on page 1 (more than a page of clears since the last
+ * successful check — typically after an expired link is renewed). Pages
+ * back with the ALL_KNOWN_BOSSES filter (pagination silently no-ops
+ * without one, see weeklyLogs.js) until it reaches the last-seen id or a
+ * clear older than the last successful check, and merges in page 1's
+ * unfiltered entries so clears of not-yet-tracked bosses aren't dropped.
+ * Newest-first, like the API. Previously only page 1 was ever looked at,
+ * so anything beyond the newest 25 was silently lost.
+ */
+async function fetchEntriesSinceLastSeen(accessToken, row, pageOne) {
+  const boundaryMs = row.last_checked_at ? new Date(row.last_checked_at).getTime() : 0;
+  const byId = new Map();
+  const isNew = (entry) => entry.id !== row.last_seen_log_id && entry.timestamp > boundaryMs;
+  for (const entry of pageOne) if (isNew(entry)) byId.set(entry.id, entry);
+
+  pages: for (let page = 1; page <= CATCH_UP_MAX_PAGES; page++) {
+    const batch = await getCharacterLogs(accessToken, row.character_name, row.region, { page, bosses: ALL_KNOWN_BOSSES });
+    if (!batch || batch.length === 0) break;
+    for (const entry of batch) {
+      if (!isNew(entry)) break pages;
+      byId.set(entry.id, entry);
+    }
+    await sleep(PER_CHARACTER_DELAY_MS);
+  }
+
+  return [...byId.values()].sort((a, b) => b.timestamp - a.timestamp);
 }
 
 /**
