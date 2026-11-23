@@ -98,6 +98,17 @@ function page({ status, icon, title, body, showDiscordButton = false }) {
 </html>`;
 }
 
+/** Anything from the request URL must go through this before it lands in
+ * the HTML — `?error=<script>…` was reflected verbatim (reflected XSS). */
+export function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 async function handleCallback(url, res, onLinked) {
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
@@ -107,7 +118,7 @@ async function handleCallback(url, res, onLinked) {
     res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(page({
       status: 'error', icon: '✕', title: 'Authorization declined',
-      body: `lostark.bible reported: <code>${error}</code>. You can close this tab and try <code>/link-account</code> again.`,
+      body: `lostark.bible reported: <code>${escapeHtml(error.slice(0, 200))}</code>. You can close this tab and try <code>/link-account</code> again.`,
     }));
     return;
   }
@@ -134,6 +145,21 @@ async function handleCallback(url, res, onLinked) {
   try {
     const token = await exchangeCodeForToken({ code, codeVerifier: pending.codeVerifier });
     const oauthUser = await getOAuthUser(token.access_token);
+
+    // The state binds this callback to whoever ran /link-account, but not
+    // to whoever approved on lostark.bible — a forwarded link would attach
+    // someone else's lostark.bible account (and logs) to the sender.
+    // lostark.bible reports the Discord account its user signed in with;
+    // when it does, it must be the same person. (Verified matching for
+    // every account linked as of 2026-11-24 before enforcing.)
+    if (oauthUser.discordId && String(oauthUser.discordId) !== pending.discordUserId) {
+      res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(page({
+        status: 'error', icon: '✕', title: 'Different Discord account',
+        body: 'This lostark.bible account belongs to a different Discord account than the one that ran <code>/link-account</code>. Run <code>/link-account</code> yourself from your own Discord account.',
+      }));
+      return;
+    }
 
     await upsertLinkedAccount({
       discordUserId: pending.discordUserId,

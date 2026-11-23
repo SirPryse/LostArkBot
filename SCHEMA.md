@@ -71,6 +71,8 @@ Powers the badge tally on that command and /my-stats' Battle Record field.
 | `raid_family_key`          | which `raidFamilies.js` family this clear belongs to (e.g. `'aegir'`), looked up via `getRaidFamilyForBoss()` at record time — **nullable**, same "not applicable/not known" convention as the rest. Only used by `getEstimatedGold*()` (below) to apply the weekly 3-family gold cap. |
 | `estimated_gold`           | that gate's gold value from `src/notify/goldEstimate.js` (sourced from `RAID_DATA.md`) — **nullable**, null when no figure is known for that boss/difficulty yet. This is an *estimate*, not a real recorded amount: lostark.bible's log data has no gold field at all. |
 | `raid_difficulty`          | the clear's raw difficulty string (e.g. `'Hard'`) — **nullable**, added after `raid_family_key`/`estimated_gold`. Only used by `splitGold()` to tell apart a family's difficulties that pay 100% Unbound (Serca Hard/Nightmare, Kazeros Hard — confirmed) from the ones that still pay the usual 50/50 default. |
+| `log_id`                   | the lostark.bible log id this row came from — **nullable** (rows from before Nov 2026). Unique per `(tracked_character_id, log_id)`, so recording the same clear twice (a retried poll batch) is a no-op. |
+| `cleared_at`               | when the clear happened (the log's timestamp) — **nullable** (older rows). `created_at` is when the bot recorded it, which can be much later for a catch-up after a renewed link; weekly gold bucketing reads `coalesce(cleared_at, created_at)`. |
 
 Neither the raw `dps` value nor which boss a clear was for gets stored
 directly on this table — `raid_family_key`/`estimated_gold` above are both

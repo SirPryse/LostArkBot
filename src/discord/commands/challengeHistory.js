@@ -1,17 +1,10 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { listChallengesForDiscordUser } from '../../db/challenges.js';
 import { getFriendlyBossName } from '../../notify/raidFamilies.js';
-import { getClassEmoji } from '../../notify/classIcons.js';
 import { FALLBACK_COLOR } from '../../notify/clearMessage.js';
+import { emojiTag } from '../../notify/format.js';
 
 const MAX_HISTORY_SHOWN = 8;
-
-/** `<:name:id>` — the inline-text form of a custom emoji, same per-file copy
- * convention as bonk.js/poller.js/challenge.js each keep. */
-function emojiTag(classNameOrIconKey) {
-  const emoji = getClassEmoji(classNameOrIconKey);
-  return emoji ? `<:${emoji.name}:${emoji.id}>` : '';
-}
 
 const ROLE_EMOJI = { dps: '🗡️', support: '🛡️' };
 

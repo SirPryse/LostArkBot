@@ -28,9 +28,9 @@ import { TokenExpiredError, InsufficientScopeError } from '../../lostarkbible/er
 import { getBestRaidsForGearScore } from '../../notify/challengeRaids.js';
 import { getFriendlyBossName } from '../../notify/raidFamilies.js';
 import { getBossImagePath } from '../../notify/bossImages.js';
-import { getClassEmoji } from '../../notify/classIcons.js';
 import { formatStat } from '../../notify/clearMessage.js';
 import { sleep } from '../../utils/sleep.js';
+import { BUFF_LABELS, emojiTag } from '../../notify/format.js';
 
 const SELECT_PREFIX = 'challenge-select:';
 const REROLL_PREFIX = 'challenge-reroll:';
@@ -47,7 +47,6 @@ const TARGET_SAMPLE_SIZE = 5;
 const MAX_FETCH_PAGES = 3;
 const PER_REQUEST_DELAY_MS = 200;
 
-const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 // "Quest gold" — deliberately distinct from every other embed color already
 // in use elsewhere (FALLBACK_COLOR blurple, SUPPORT_COLOR/DPS_COLOR,
 // GROUP_CLEAR_COLOR gold-0xffd700) so a challenge reads as its own kind of
@@ -76,11 +75,24 @@ function randomFlavor() {
 // message), so it doubles as the natural key. Losing this on a restart just
 // means Accept degrades to "locks the message, can't track completion" —
 // see the Accept handler.
-const pendingChallenges = new Map();
+const pendingChallenges = new Map(); // message id -> { data, timer }
 const PENDING_TTL_MS = 10 * 60 * 1000;
 function storePendingChallenge(messageId, data) {
-  pendingChallenges.set(messageId, data);
-  setTimeout(() => pendingChallenges.delete(messageId), PENDING_TTL_MS);
+  // Every reroll stores again under the same message id — cancel the
+  // previous expiry timer, or the first one would delete the *latest*
+  // reroll's data once it fires (a reroll at minute 9 used to be wiped a
+  // minute later, so Accept reported "couldn't save it").
+  clearTimeout(pendingChallenges.get(messageId)?.timer);
+  const timer = setTimeout(() => pendingChallenges.delete(messageId), PENDING_TTL_MS);
+  timer.unref?.();
+  pendingChallenges.set(messageId, { data, timer });
+}
+function takePendingChallenge(messageId) {
+  const entry = pendingChallenges.get(messageId);
+  if (!entry) return null;
+  clearTimeout(entry.timer);
+  pendingChallenges.delete(messageId);
+  return entry.data;
 }
 
 function average(values) {
@@ -160,14 +172,6 @@ function buildButtons(trackedCharacterId, bossName) {
       .setStyle(ButtonStyle.Secondary)
       .setEmoji('🔄'),
   );
-}
-
-/** `<:name:id>` — the inline-text form of a custom emoji, same helper
- * poller.js/bonk.js/clearMessage.js each keep their own copy of rather than
- * share (see ARCHITECTURE.md's note on that duplication being deliberate). */
-function emojiTag(classNameOrIconKey) {
-  const emoji = getClassEmoji(classNameOrIconKey);
-  return emoji ? `<:${emoji.name}:${emoji.id}>` : '';
 }
 
 /** The Success/Failure betting buttons on a challenge's public post — the
@@ -414,6 +418,10 @@ export const challengeCommand = {
           await interaction.editReply({ content: 'That character is no longer trackable here.', embeds: [], components: [] });
           return;
         }
+        if (character.account_status !== 'active' || new Date(character.token_expires_at) <= new Date()) {
+          await interaction.editReply({ content: "This account's lostark.bible link needs to be re-authorized.", embeds: [], components: [] });
+          return;
+        }
 
         const payload = await buildChallengePayload(character, bossName);
         if (payload.error) {
@@ -429,8 +437,7 @@ export const challengeCommand = {
     {
       prefix: ACCEPT_PREFIX,
       async handle(interaction) {
-        const pending = pendingChallenges.get(interaction.message.id);
-        pendingChallenges.delete(interaction.message.id);
+        const pending = takePendingChallenge(interaction.message.id);
 
         // Lock in whatever's already shown either way — same "finalize this
         // exact message" pattern /nuke and /untrack-all use for their own

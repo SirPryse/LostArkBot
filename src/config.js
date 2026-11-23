@@ -8,6 +8,20 @@ function required(name) {
   return value;
 }
 
+/** A positive number from the environment, or `fallback` when unset. A set
+ * but invalid value (e.g. "abc", "0") fails startup loudly — NaN or 0 as
+ * a setInterval delay would otherwise fire continuously and hammer
+ * lostark.bible/Postgres. */
+function positiveNumber(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`Environment variable ${name} must be a positive number (got "${raw}")`);
+  }
+  return value;
+}
+
 export const config = {
   discordToken: required('DISCORD_TOKEN'),
   discordClientId: required('DISCORD_CLIENT_ID'),
@@ -18,12 +32,12 @@ export const config = {
   // checked far more often than everyone else, since they're the ones
   // whose clears actually count toward the estimated-gold stat and drive
   // /challenge. See poller.js's runGoldEarnerPollTick/runOtherPollTick.
-  goldEarnerPollIntervalMinutes: Number(process.env.GOLD_EARNER_POLL_INTERVAL_MINUTES || 5),
-  otherPollIntervalMinutes: Number(process.env.OTHER_POLL_INTERVAL_MINUTES || 60),
+  goldEarnerPollIntervalMinutes: positiveNumber('GOLD_EARNER_POLL_INTERVAL_MINUTES', 5),
+  otherPollIntervalMinutes: positiveNumber('OTHER_POLL_INTERVAL_MINUTES', 60),
   // Decoupled from both poll tiers above — see poller.js's
   // runChallengeExpiryTick for why a challenge's timeout-failure check
   // can't just piggyback on whichever tier its character happens to be in.
-  challengeExpiryCheckIntervalMinutes: Number(process.env.CHALLENGE_EXPIRY_CHECK_INTERVAL_MINUTES || 5),
+  challengeExpiryCheckIntervalMinutes: positiveNumber('CHALLENGE_EXPIRY_CHECK_INTERVAL_MINUTES', 5),
   // Public client (no client_secret) — lostark.bible's OAuth server supports
   // this via PKCE (confirmed live against its own
   // /.well-known/oauth-authorization-server: token_endpoint_auth_methods_supported
@@ -31,6 +45,6 @@ export const config = {
   // client_id RaidPlanner already uses; redirect URI just needs to be one of
   // the ones already registered for that shared app.
   laBibleClientId: required('LA_BIBLE_CLIENT_ID'),
-  oauthPort: Number(process.env.OAUTH_PORT || 3000),
+  oauthPort: positiveNumber('OAUTH_PORT', 3000),
   oauthRedirectUri: process.env.OAUTH_REDIRECT_URI || 'http://localhost:3000/oauth/callback',
 };

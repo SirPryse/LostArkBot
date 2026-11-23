@@ -19,24 +19,50 @@ import { sumTopFamilies, splitGold } from '../notify/goldEstimate.js';
  * difficulties within a family that pay a different gold split than the
  * family's default (Serca Hard/Nightmare, Kazeros Hard — see that
  * function's comment). poller.js's call site always passes a real
- * computed value for every one of these. */
+ * computed value for every one of these.
+ *
+ * `logId` is the lostark.bible log id — with the unique
+ * (tracked_character_id, log_id) index, recording the same clear twice
+ * (a retried poll batch) is a no-op. `clearedAt` is when the clear
+ * happened (the log's timestamp), which weekly gold bucketing uses — it can
+ * be far earlier than now for a catch-up after a renewed link. Returns
+ * whether a new row was actually inserted. */
 export async function recordClear(
   trackedCharacterId,
-  percentile,
-  contributionPercentile = null,
-  died = false,
-  belowMinDps = null,
-  isBus = null,
-  raidFamilyKey = null,
-  estimatedGold = null,
-  raidDifficulty = null,
+  {
+    percentile = null,
+    contributionPercentile = null,
+    died = false,
+    belowMinDps = null,
+    isBus = null,
+    raidFamilyKey = null,
+    estimatedGold = null,
+    raidDifficulty = null,
+    logId = null,
+    clearedAt = null,
+  },
 ) {
-  await pool.query(
+  const { rowCount } = await pool.query(
     `insert into clear_history
-       (tracked_character_id, percentile, contribution_percentile, died, below_min_dps, is_bus, raid_family_key, estimated_gold, raid_difficulty)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [trackedCharacterId, percentile, contributionPercentile, died, belowMinDps, isBus, raidFamilyKey, estimatedGold, raidDifficulty],
+       (tracked_character_id, percentile, contribution_percentile, died, below_min_dps, is_bus,
+        raid_family_key, estimated_gold, raid_difficulty, log_id, cleared_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     on conflict (tracked_character_id, log_id) do nothing`,
+    [
+      trackedCharacterId,
+      percentile,
+      contributionPercentile,
+      died,
+      belowMinDps,
+      isBus,
+      raidFamilyKey,
+      estimatedGold,
+      raidDifficulty,
+      logId,
+      clearedAt,
+    ],
   );
+  return rowCount > 0;
 }
 
 function tallyTiers(values, tierMins) {
@@ -233,7 +259,7 @@ const EMPTY_GOLD_SPLIT = { total: 0, character: 0, roster: 0, unbound: 0 };
 export async function getEstimatedGoldForAccount(linkedAccountId, guildId) {
   const [{ rows }, earnerKeySet] = await Promise.all([
     pool.query(
-      `select tc.character_name, tc.region, ch.raid_family_key, ch.estimated_gold, ch.raid_difficulty, ch.created_at
+      `select tc.character_name, tc.region, ch.raid_family_key, ch.estimated_gold, ch.raid_difficulty, coalesce(ch.cleared_at, ch.created_at) as created_at
        from clear_history ch
        join tracked_characters tc on tc.id = ch.tracked_character_id
        where tc.linked_account_id = $1 and tc.guild_id = $2 and ${GOLD_BEARING_CLEAR_WHERE}`,
@@ -249,7 +275,7 @@ export async function getEstimatedGoldForAccount(linkedAccountId, guildId) {
  * per-character view. Returns { total, character, roster, unbound }. */
 export async function getEstimatedGoldForCharacter(trackedCharacterId) {
   const { rows } = await pool.query(
-    `select tc.character_name, tc.region, tc.linked_account_id, ch.raid_family_key, ch.estimated_gold, ch.raid_difficulty, ch.created_at
+    `select tc.character_name, tc.region, tc.linked_account_id, ch.raid_family_key, ch.estimated_gold, ch.raid_difficulty, coalesce(ch.cleared_at, ch.created_at) as created_at
      from clear_history ch
      join tracked_characters tc on tc.id = ch.tracked_character_id
      where tc.id = $1 and ${GOLD_BEARING_CLEAR_WHERE}`,

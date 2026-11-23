@@ -11,7 +11,8 @@
     "migrate": "node scripts/migrate.js",
     "migrate:down": "node scripts/migrate.js down",
     "deploy-commands": "node src/discord/deployCommands.js",
-    "check-env": "node scripts/check-env.js"
+    "check-env": "node scripts/check-env.js",
+    "test": "node --import ./test/env.js --test test/"
   },
   "dependencies": {
     "discord.js": "^14.16.3",

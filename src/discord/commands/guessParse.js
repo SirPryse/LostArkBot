@@ -19,6 +19,7 @@ import { getFriendlyBossName, ALL_KNOWN_BOSSES } from '../../notify/raidFamilies
 import { getBossImagePath } from '../../notify/bossImages.js';
 import { tierForFraction } from '../../notify/percentileTiers.js';
 import { sleep } from '../../utils/sleep.js';
+import { BUFF_LABELS, formatDuration } from '../../notify/format.js';
 
 const PICK_PREFIX = 'guess-parse-pick:';
 // Caps *rounds*, not total live lookups — every account gets tried once
@@ -41,7 +42,6 @@ const ANSWER_ATTEMPT_DELAY_MS = 150;
 // guessable, not a technical limit.
 const MIN_LOG_PAGE = 1;
 const MAX_LOG_PAGE = 2;
-const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 
 // Auroral Teahouse's own custom emoji — usable in message text regardless
 // of which guild the round is running in, since Discord resolves <name:id>
@@ -138,14 +138,12 @@ const DPS_STAT_FIELDS = [
  * this boss/difficulty).
  *
  * `role === 'unknown'` falls back to DPS_STAT_FIELDS rather than an empty
- * pool. Confirmed live: getRole() returns 'unknown' for older log entries
- * (reached now that pagination actually works) that predate lostark.bible
- * tagging entries with `udps`/`bdps` — those entries still have a plain
- * `dps` value, just no way to tell support from dps by key presence alone.
- * SUPPORT_STAT_FIELDS isn't a safer guess here: rdps/rContribution have
- * never been observed present on *any* entry, old or new (a separate,
- * pre-existing gap — see clearMessage.js's formatStat), so defaulting to
- * "dps-shaped" data is the option actually backed by what's on the entry.
+ * pool. getRole() only returns 'unknown' for very old log entries that
+ * predate lostark.bible tagging entries with `udps`/`bdps` (current DPS
+ * entries carry `ndps`, aliased to `udps` — see lostarkbible/logEntry.js).
+ * Those old entries still have a plain `dps` value, and support-only
+ * fields (bdps, buffs, contributionPercentile) are what they lack, so
+ * "dps-shaped" is the guess actually backed by what's on the entry.
  * formatStat/formatPercent/formatPercentile are all null-safe, so a cell
  * whose field genuinely isn't on this entry just renders "N/A" instead of
  * dropping out or crashing. */
@@ -209,11 +207,6 @@ function formatPercentile(fraction) {
   const topPercent = (100 - fraction * 100).toFixed(2);
   return `${tierForFraction(fraction).emoji} Top ${topPercent}%`;
 }
-function formatDuration(ms) {
-  const totalSeconds = Math.round(ms / 1000);
-  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
-}
-
 // Gear Score itself is always shown as its real, exact value when it isn't
 // the field a round chose to redact — but that exact number is still a
 // giveaway if the 3 choices span wildly different iLvls (regulars tend to
@@ -482,7 +475,8 @@ async function pickAnswer(candidates) {
  *
  * No live API calls here at all: `gear_score` comes straight off the
  * tracked_characters row `listCompetitiveWithAccountByGuild` already
- * fetched, which the poller refreshes every 10 minutes via
+ * fetched, which the poller refreshes on every check (5 min for Gold
+ * Earners, hourly for everyone else) via
  * updateLastSeen() as a side effect of normal polling — plenty fresh for
  * "which iLvl bucket is this in", and it means decoy selection no longer
  * does the request-per-candidate burst that used to blow through

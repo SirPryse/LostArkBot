@@ -9,7 +9,7 @@ import {
 import { flagNeedsReauth } from '../notify/reauthNotice.js';
 import { getAnnouncementChannel } from '../db/guildSettings.js';
 import { recordClear } from '../db/clearHistory.js';
-import { getActiveChallengesForCharacter, getAllActiveChallenges, resolveChallenge } from '../db/challenges.js';
+import { getAllActiveChallenges, resolveChallenge } from '../db/challenges.js';
 import { getBetCounts } from '../db/challengeBets.js';
 import { claim, setMessage, get as getGroupPost } from '../db/raidGroupPosts.js';
 import { getCharacterLogs } from '../lostarkbible/client.js';
@@ -26,15 +26,10 @@ import { getGoldEstimate } from '../notify/goldEstimate.js';
 import { getRaidFamilyForBoss, getFriendlyBossName, ALL_KNOWN_BOSSES } from '../notify/raidFamilies.js';
 import { lastWednesdayReset } from '../notify/raidWeek.js';
 import { getBossImagePath } from '../notify/bossImages.js';
-import { getClassEmoji } from '../notify/classIcons.js';
 import { TokenExpiredError, InsufficientScopeError } from '../lostarkbible/errors.js';
 import { config } from '../config.js';
 import { sleep } from '../utils/sleep.js';
-
-// Same labels/order as challenge.js's own BUFF_LABELS (matching a
-// challenge's targets array by index) — kept as its own copy rather than
-// shared, same deliberate per-file duplication convention as emojiTag.
-const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
+import { BUFF_LABELS, emojiTag } from '../notify/format.js';
 
 // A challenge's raw deadline (see expireStaleChallenges) lands on the
 // *exact same instant* weeklyReset.js fires for that guild — both are
@@ -45,7 +40,7 @@ const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
 // actually see it. Delaying the expiry check itself by this much gives the
 // weekly reset (channel wipe + badge awards + champions post, all
 // sequential awaits, well under a minute even worst-case) time to finish
-// first — poller.js's own 10-minute tick means this buffer spans several
+// first — the 5-minute expiry sweep (runChallengeExpiryTick) means this buffer spans several
 // ticks' worth of margin, not just one.
 const CHALLENGE_EXPIRY_BUFFER_MS = 30 * 60 * 1000;
 
@@ -229,14 +224,6 @@ function formatAchievedVsTarget(role, targets, entry) {
   return `\`\`\`\n${header}\n${body}\n\`\`\``;
 }
 
-/** `<:name:id>` — the inline-text form of a custom emoji, same helper
- * bonk.js/clearMessage.js already define locally rather than share (see
- * ARCHITECTURE.md's note on that duplication being deliberate). */
-function emojiTag(classNameOrIconKey) {
-  const emoji = getClassEmoji(classNameOrIconKey);
-  return emoji ? `<:${emoji.name}:${emoji.id}>` : '';
-}
-
 /** Boss image as a real thumbnail (not just referenced by URL — these are
  * local asset files, so they need attaching, same as clearMessage.js's own
  * announcements). Filename includes the challenge id so concurrent
@@ -339,7 +326,9 @@ export async function expireStaleChallenges(discordClient, channelId, activeChal
       continue;
     }
 
-    await resolveChallenge(challenge.id, 'failed');
+    // Already resolved elsewhere (a clear landed at the same moment) — that
+    // path owns the announcement.
+    if (!(await resolveChallenge(challenge.id, 'failed'))) continue;
     await finalizeBetMessage(discordClient, challenge, 'failed');
     const gateLabel = getFriendlyBossName(challenge.boss_name, challenge.difficulty);
     // Neither is on the challenge row itself — nothing was actually
@@ -447,9 +436,13 @@ export async function checkChallengeProgress(discordClient, guildId, channelId, 
   const challenge = activeChallenges[idx];
   const gateLabel = getFriendlyBossName(challenge.boss_name, challenge.difficulty);
   const met = challenge.role === 'support' ? isSupportTargetMet(challenge.targets, entry) : (entry.udps ?? 0) >= challenge.targets.udps;
+  const remaining = [...activeChallenges.slice(0, idx), ...activeChallenges.slice(idx + 1)];
+
+  // Already resolved elsewhere (the expiry sweep got there first) — that
+  // path owns the announcement.
+  if (!(await resolveChallenge(challenge.id, met ? 'completed' : 'failed'))) return remaining;
 
   if (met) {
-    await resolveChallenge(challenge.id, 'completed');
     await finalizeBetMessage(discordClient, challenge, 'completed');
     await postChallengeAnnouncement(
       discordClient,
@@ -460,7 +453,6 @@ export async function checkChallengeProgress(discordClient, guildId, channelId, 
       challenge.id,
     );
   } else {
-    await resolveChallenge(challenge.id, 'failed');
     await finalizeBetMessage(discordClient, challenge, 'failed');
     const comparison = formatAchievedVsTarget(challenge.role, challenge.targets, entry);
     await postChallengeAnnouncement(
@@ -472,10 +464,33 @@ export async function checkChallengeProgress(discordClient, guildId, channelId, 
     );
   }
 
-  return [...activeChallenges.slice(0, idx), ...activeChallenges.slice(idx + 1)];
+  return remaining;
 }
 
-async function processCharacter(discordClient, row) {
+/**
+ * Splits a character's new log entries into `fresh` (announced like any
+ * live clear) and `backlog` (older than BACKLOG_AGE_MS: a catch-up after an
+ * expired link was renewed or the bot was down — recorded for stats/gold
+ * only, never posted or scored against challenges). Before this split, a
+ * re-link dumped every missed clear into the channel at once (seen live:
+ * 50 posts within the first hour for one account). Pure; exported for
+ * tests.
+ */
+export function splitBacklog(entries, now = Date.now(), backlogAgeMs = BACKLOG_AGE_MS) {
+  const cutoff = now - backlogAgeMs;
+  return {
+    backlog: entries.filter((entry) => entry.timestamp < cutoff),
+    fresh: entries.filter((entry) => entry.timestamp >= cutoff),
+  };
+}
+
+/**
+ * One tracked_characters row. `ctx` holds the per-tick caches (see
+ * buildTickContext); `getPageOne(accessToken)` returns this character's
+ * page-1 logs, shared across every row for the same character (the same
+ * character tracked in two servers is fetched once, not twice).
+ */
+async function processCharacter(discordClient, row, ctx, getPageOne) {
   if (row.account_status !== 'active') return;
   if (new Date(row.token_expires_at) <= new Date()) {
     await flagNeedsReauth(discordClient, row.linked_account_id);
@@ -486,7 +501,7 @@ async function processCharacter(discordClient, row) {
 
   let entries;
   try {
-    entries = await getCharacterLogs(accessToken, row.character_name, row.region, { page: 1 });
+    entries = await getPageOne(accessToken);
   } catch (err) {
     if (err instanceof TokenExpiredError) {
       await flagNeedsReauth(discordClient, row.linked_account_id);
@@ -520,46 +535,38 @@ async function processCharacter(discordClient, row) {
   const newEntries =
     seenIndex !== -1 ? entries.slice(0, seenIndex) : await fetchEntriesSinceLastSeen(accessToken, row, entries);
 
-  // Anything older than BACKLOG_AGE_MS is a catch-up (account was expired,
-  // bot was down) rather than a live clear: record it for stats/gold, but
-  // don't post it or score challenges with it. Before this, a re-link
-  // dumped every missed clear into the channel at once (seen live: 50 posts
-  // within the first hour for one account).
-  const cutoff = Date.now() - BACKLOG_AGE_MS;
-  const backlog = newEntries.filter((entry) => entry.timestamp < cutoff);
-  const fresh = newEntries.filter((entry) => entry.timestamp >= cutoff);
-  if (backlog.length > 0 && row.view_mode === 'competitive') {
-    for (const entry of [...backlog].reverse()) await recordClearForEntry(row.id, entry);
-    console.log(`Caught up ${backlog.length} missed clear(s) for ${row.character_name} without announcing.`);
+  const competitive = row.view_mode === 'competitive';
+  const { backlog, fresh } = splitBacklog(newEntries);
+  if (backlog.length > 0 && competitive) {
+    let added = 0;
+    for (const entry of [...backlog].reverse()) if (await recordClearForEntry(row.id, entry)) added++;
+    console.log(`Caught up ${added} missed clear(s) for ${row.character_name} without announcing.`);
   }
 
-  const channelId = await getAnnouncementChannel(row.guild_id);
-  // Just a plain fetch now — expiry is no longer checked inline here (see
-  // runChallengeExpiryTick, its own decoupled timer), so this doesn't need
-  // to wait on a poll tick reaching this specific character to stay
-  // reasonably fresh. A character can hold several active challenges at
-  // once (one per gate) — checkChallengeProgress's own return value (the
-  // list, with a just-resolved entry removed) is what subsequent entries
-  // in the loop below check against, so several gates cleared in the same
-  // tick still each get credited correctly without re-querying.
-  let activeChallenges = row.view_mode === 'competitive' ? await getActiveChallengesForCharacter(row.id) : [];
+  // A character can hold several active challenges at once (one per gate)
+  // — checkChallengeProgress's return value (the list minus anything it
+  // just resolved) is what later entries in the loop check against.
+  const channelId = await ctx.announcementChannel(row.guild_id);
+  let activeChallenges = competitive ? ctx.activeChallengesFor(row.id) : [];
 
-  if (fresh.length > 0) {
-    if (channelId) {
-      for (const entry of [...fresh].reverse()) {
-        await announceClear(discordClient, row.guild_id, channelId, entry, row.view_mode);
-        if (row.view_mode === 'competitive') {
-          await recordClearForEntry(row.id, entry);
-          activeChallenges = await checkChallengeProgress(discordClient, row.guild_id, channelId, entry, activeChallenges);
-        }
-      }
+  for (const entry of [...fresh].reverse()) {
+    // Posting needs a channel; recording stats and resolving challenges
+    // don't. (Recording used to sit inside the channel check, so a server
+    // without /announce-channel silently lost every clear while
+    // last_seen_log_id still moved past them.)
+    if (channelId) await announceClear(discordClient, row.guild_id, channelId, entry, row.view_mode);
+    if (competitive) {
+      await recordClearForEntry(row.id, entry);
+      activeChallenges = await checkChallengeProgress(discordClient, row.guild_id, channelId, entry, activeChallenges);
     }
   }
 
   await updateLastSeen(row.id, newest.id, identity);
 }
 
-/** One clear_history row for a log entry (competitive view mode only). */
+/** One clear_history row for a log entry (competitive view mode only).
+ * Idempotent per log id — a retried batch doesn't double-count. Returns
+ * whether a row was inserted. */
 async function recordClearForEntry(trackedCharacterId, entry) {
   // null (not true/false) for anything minDps.js has no opinion on — a
   // support clear (their own `dps` stat is a different metric entirely,
@@ -579,17 +586,18 @@ async function recordClearForEntry(trackedCharacterId, entry) {
   // RAID_DATA.md has no figure for yet.
   const familyMatch = getRaidFamilyForBoss(entry.boss, entry.difficulty);
 
-  await recordClear(
-    trackedCharacterId,
-    entry.percentile ?? null,
-    entry.contributionPercentile ?? null,
-    Boolean(entry.isDead),
+  return recordClear(trackedCharacterId, {
+    percentile: entry.percentile ?? null,
+    contributionPercentile: entry.contributionPercentile ?? null,
+    died: Boolean(entry.isDead),
     belowMinDps,
-    entry.isBus ?? null,
-    familyMatch?.family.key ?? null,
-    getGoldEstimate(entry.boss, entry.difficulty),
-    entry.difficulty ?? null,
-  );
+    isBus: entry.isBus ?? null,
+    raidFamilyKey: familyMatch?.family.key ?? null,
+    estimatedGold: getGoldEstimate(entry.boss, entry.difficulty),
+    raidDifficulty: entry.difficulty ?? null,
+    logId: entry.id ?? null,
+    clearedAt: Number.isFinite(entry.timestamp) ? new Date(entry.timestamp) : null,
+  });
 }
 
 /**
@@ -623,20 +631,58 @@ async function fetchEntriesSinceLastSeen(accessToken, row, pageOne) {
 }
 
 /**
- * Sequentially processes one already-fetched list of tracked-character
- * rows, with a small delay between each to stay under lostark.bible's
- * rate limit. A per-character try/catch keeps one character's failure
- * from aborting the rest of the tick (BullMQ used to give this isolation
- * for free via per-job failure handling — now it's explicit). Shared by
- * both tiers below — the only difference between them is which rows get
- * fetched, not how they're processed.
+ * Lookups every character in a tick would otherwise repeat: each guild's
+ * announcement channel (memoized on first use) and every active challenge
+ * (one query for the whole tick, grouped by character).
+ */
+async function buildTickContext() {
+  const channelByGuild = new Map();
+  const challengesByCharacter = new Map();
+  for (const challenge of await getAllActiveChallenges()) {
+    const list = challengesByCharacter.get(challenge.tracked_character_id) ?? [];
+    list.push(challenge);
+    challengesByCharacter.set(challenge.tracked_character_id, list);
+  }
+  return {
+    async announcementChannel(guildId) {
+      if (!channelByGuild.has(guildId)) channelByGuild.set(guildId, await getAnnouncementChannel(guildId));
+      return channelByGuild.get(guildId);
+    },
+    activeChallengesFor(trackedCharacterId) {
+      return [...(challengesByCharacter.get(trackedCharacterId) ?? [])];
+    },
+  };
+}
+
+/**
+ * Processes one tier's tracked-character rows. Rows for the same character
+ * (same linked account + name + region — tracked in more than one server)
+ * share a single page-1 fetch; each row is still processed on its own for
+ * its own guild/last-seen. A per-row try/catch keeps one failure from
+ * aborting the rest, with a small delay between characters to stay under
+ * lostark.bible's rate limit.
  */
 async function runTick(discordClient, rows) {
+  const ctx = await buildTickContext();
+
+  const groups = new Map();
   for (const row of rows) {
-    try {
-      await processCharacter(discordClient, row);
-    } catch (err) {
-      console.error(`Error polling tracked character ${row.id} (${row.character_name}):`, err);
+    const key = `${row.linked_account_id}|${row.character_name.toLowerCase()}|${row.region}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  for (const group of groups.values()) {
+    let pageOne = null;
+    const getPageOne = (accessToken) =>
+      (pageOne ??= getCharacterLogs(accessToken, group[0].character_name, group[0].region, { page: 1 }));
+
+    for (const row of group) {
+      try {
+        await processCharacter(discordClient, row, ctx, getPageOne);
+      } catch (err) {
+        console.error(`Error polling tracked character ${row.id} (${row.character_name}):`, err);
+      }
     }
     await sleep(PER_CHARACTER_DELAY_MS);
   }
@@ -684,45 +730,82 @@ export async function runOtherPollTick(discordClient) {
 /** Triggers both tiers together — /check-now's "check everyone right now"
  * without waiting for either schedule. Each tier still guards itself
  * independently (see above): if one's already mid-run from the automatic
- * schedule, that one simply skips with its own warning, same as before
- * this tier split existed — this doesn't need (or have) a guard of its
- * own. */
+ * schedule, that one simply skips with its own warning. */
 export async function runPollTick(discordClient) {
   await Promise.all([runGoldEarnerPollTick(discordClient), runOtherPollTick(discordClient)]);
 }
 
 // When each tier's *next automatic* tick is due — read by presence.js to
-// show a live countdown in the bot's status. Sourced from the interval
-// timing itself (recomputed right when each interval fires), not from how
-// long a tick took to run, since "next scheduled tick" and "still
-// processing the last one" are different questions — a slow tier-B run
-// doesn't mean tier-B's next slot moved. `null` until startPolling() has
-// actually run once.
+// show a live countdown in the bot's status. `null` until the first tick
+// has been scheduled.
 let nextGoldEarnerPollAt = null;
 let nextOtherPollAt = null;
 
 /** `{ nextGoldEarnerPollAt, nextOtherPollAt }` — both epoch ms, or null
- * before startPolling() has run. presence.js polls this to redraw the
- * countdown; kept as a plain getter rather than an event emitter since a
- * once-every-30s read is cheap and this avoids adding a listener that
- * would need cleanup. */
+ * before scheduling. presence.js polls this to redraw the countdown. */
 export function getNextPollTimes() {
   return { nextGoldEarnerPollAt, nextOtherPollAt };
 }
 
+// Never poll sooner than this after startup — lets the gateway settle and
+// keeps a crash-loop from hammering lostark.bible.
+const STARTUP_DELAY_MS = 30 * 1000;
+
+/**
+ * Delay before a tier's first tick after startup: due when its
+ * least-recently-checked active character is due (last_checked_at +
+ * interval), clamped to [STARTUP_DELAY_MS, interval]. Previously the first
+ * tick was always a full interval after process start, so every deploy or
+ * restart pushed the hourly tier back by an hour (four deploys in one
+ * evening kept it from running at all). Exported for tests via
+ * computeFirstTickDelay.
+ */
+export function computeFirstTickDelay(lastCheckedTimes, intervalMs, now = Date.now()) {
+  if (lastCheckedTimes.length === 0) return intervalMs;
+  const oldest = Math.min(...lastCheckedTimes.map((t) => (t ? new Date(t).getTime() : 0)));
+  return Math.min(intervalMs, Math.max(STARTUP_DELAY_MS, oldest + intervalMs - now));
+}
+
+async function firstTickDelay(listRows, intervalMs) {
+  const rows = (await listRows()).filter((r) => r.account_status === 'active');
+  return computeFirstTickDelay(rows.map((r) => r.last_checked_at), intervalMs);
+}
+
+function scheduleTier({ discordClient, intervalMs, listRows, run, setNextAt, label }) {
+  firstTickDelay(listRows, intervalMs)
+    .catch((err) => {
+      console.error(`Couldn't compute first ${label} poll delay, using the startup default:`, err);
+      return STARTUP_DELAY_MS;
+    })
+    .then((delayMs) => {
+      setNextAt(Date.now() + delayMs);
+      console.log(`First ${label} poll in ${Math.round(delayMs / 1000)}s.`);
+      setTimeout(() => {
+        const tick = () => {
+          setNextAt(Date.now() + intervalMs);
+          run(discordClient).catch((err) => console.error(`${label} poll tick failed:`, err));
+        };
+        tick();
+        setInterval(tick, intervalMs);
+      }, delayMs);
+    });
+}
+
 export function startPolling(discordClient) {
-  const goldEarnerIntervalMs = config.goldEarnerPollIntervalMinutes * 60 * 1000;
-  const otherIntervalMs = config.otherPollIntervalMinutes * 60 * 1000;
-
-  nextGoldEarnerPollAt = Date.now() + goldEarnerIntervalMs;
-  nextOtherPollAt = Date.now() + otherIntervalMs;
-
-  setInterval(() => {
-    nextGoldEarnerPollAt = Date.now() + goldEarnerIntervalMs;
-    runGoldEarnerPollTick(discordClient).catch((err) => console.error('Gold Earner poll tick failed:', err));
-  }, goldEarnerIntervalMs);
-  setInterval(() => {
-    nextOtherPollAt = Date.now() + otherIntervalMs;
-    runOtherPollTick(discordClient).catch((err) => console.error('Other poll tick failed:', err));
-  }, otherIntervalMs);
+  scheduleTier({
+    discordClient,
+    intervalMs: config.goldEarnerPollIntervalMinutes * 60 * 1000,
+    listRows: listEnabledGoldEarnersWithAccount,
+    run: runGoldEarnerPollTick,
+    setNextAt: (at) => (nextGoldEarnerPollAt = at),
+    label: 'Gold Earner',
+  });
+  scheduleTier({
+    discordClient,
+    intervalMs: config.otherPollIntervalMinutes * 60 * 1000,
+    listRows: listEnabledNonGoldEarnersWithAccount,
+    run: runOtherPollTick,
+    setNextAt: (at) => (nextOtherPollAt = at),
+    label: 'Other',
+  });
 }

@@ -16,8 +16,8 @@ import {
 import { getBossImagePath } from './bossImages.js';
 import { tierForFraction } from './percentileTiers.js';
 import { getMinDps } from './minDps.js';
-import { getClassEmoji } from './classIcons.js';
 import { getFriendlyBossName } from './raidFamilies.js';
+import { BUFF_LABELS, emojiTag, formatDuration } from './format.js';
 
 export const SUPPORT_COLOR = 0x57f287; // Discord green
 export const DPS_COLOR = 0xed4245; // Discord red
@@ -28,21 +28,12 @@ export const FALLBACK_COLOR = 0x5865f2; // Discord blurple
 // DPS or solo support post.
 const GROUP_CLEAR_COLOR = 0xffd700; // gold
 
-const BUFF_LABELS = ['AP Buff', 'Brand', 'Identity', 'T'];
-
 // Discord's real total-component-per-message cap for Components V2 isn't
 // exposed by discord.js's own client-side validation (which only checks
 // individual array maxes, not a message-wide total) — stay comfortably
 // under the ~40 the API is known to enforce before falling back to a fresh
 // message instead of continuing to force an append.
 const MAX_CONTAINER_COMPONENTS = 34;
-
-function formatDuration(ms) {
-  const totalSeconds = Math.round(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${seconds}s`;
-}
 
 /** 2-decimal float, with M/B suffix for large stats (damage-scale numbers).
  * Null-safe: confirmed live that older lostark.bible log entries (roughly
@@ -83,11 +74,6 @@ export function getRole(logEntry) {
   // in lostarkbible/client.js.
   if ('udps' in logEntry || 'ndps' in logEntry) return 'dps';
   return 'unknown';
-}
-
-function emojiTag(classNameOrIconKey) {
-  const emoji = getClassEmoji(classNameOrIconKey);
-  return emoji ? `<:${emoji.name}:${emoji.id}>` : '';
 }
 
 function colorForRole(role) {

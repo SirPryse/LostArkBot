@@ -4,6 +4,8 @@ import { getLeaderboard } from '../db/guessGame.js';
 import { awardBadge } from '../db/guessLeaderboardBadges.js';
 import { clearChannel } from '../utils/clearChannel.js';
 import { repostReauthNotice } from '../notify/reauthNotice.js';
+import { pruneOlderThan } from '../db/raidGroupPosts.js';
+import { lastWednesdayReset } from '../notify/raidWeek.js';
 
 // Lost Ark's weekly raid-lockout reset — confirmed live: the daily reset is
 // a fixed 10:00 UTC across every region (Game Time Master's game-data.js,
@@ -111,6 +113,52 @@ export async function runWeeklyResetForAllGuilds(discordClient) {
       console.error(`Weekly reset failed for guild ${guildId}:`, err);
     }
   }
+
+  const pruned = await pruneOlderThan(GROUP_POST_RETENTION_DAYS).catch((err) => {
+    console.error('Weekly reset: failed to prune old raid group posts:', err);
+    return 0;
+  });
+  if (pruned > 0) console.log(`Weekly reset: pruned ${pruned} raid group post claim(s).`);
+}
+
+// raid_group_posts rows only matter while a raid's party members are still
+// being appended (minutes to hours); keep two weeks for safety.
+const GROUP_POST_RETENTION_DAYS = 14;
+
+// How long after the Wednesday reset a missed one is still caught up at
+// startup. Past this, wiping the channel mid-week would delete that week's
+// announcements, so it's skipped (and logged) instead.
+const MISSED_RESET_CATCH_UP_MS = 24 * 60 * 60 * 1000;
+
+/** Whether this guild's weekly reset for the current week was missed (the
+ * bot was down or restarting at Wednesday 10:00 UTC) and is still recent
+ * enough to run now. A guild that has never had a reset (null) is left
+ * alone — a deploy shouldn't wipe a brand-new server's channel. Pure;
+ * exported for tests. */
+export function isMissedReset(lastResetAt, now = new Date(), catchUpMs = MISSED_RESET_CATCH_UP_MS) {
+  if (!lastResetAt) return false;
+  const boundary = lastWednesdayReset(now);
+  return new Date(lastResetAt) < boundary && now - boundary <= catchUpMs;
+}
+
+/** Startup check: run the weekly reset for any guild that missed this
+ * week's. claimWeeklyReset() inside runWeeklyReset still guards against a
+ * double run. */
+async function runMissedWeeklyResets(discordClient) {
+  const now = new Date();
+  for (const { guildId, channelId } of await listAnnouncementChannels()) {
+    try {
+      const lastResetAt = await getLastResetAt(guildId);
+      if (isMissedReset(lastResetAt, now)) {
+        console.log(`Weekly reset for guild ${guildId} was missed (last ${new Date(lastResetAt).toISOString()}) — running it now.`);
+        await runWeeklyReset(discordClient, guildId, channelId);
+      } else if (lastResetAt && new Date(lastResetAt) < lastWednesdayReset(now)) {
+        console.warn(`Weekly reset for guild ${guildId} was missed more than a day ago — skipping until next Wednesday.`);
+      }
+    } catch (err) {
+      console.error(`Missed weekly reset check failed for guild ${guildId}:`, err);
+    }
+  }
 }
 
 function msUntilNextReset() {
@@ -135,4 +183,8 @@ export function startWeeklyResetSchedule(discordClient) {
     }, msUntilNextReset());
   };
   scheduleNext();
+
+  // The schedule only ever looks forward — a restart spanning Wednesday
+  // 10:00 UTC used to skip that week's reset entirely.
+  runMissedWeeklyResets(discordClient).catch((err) => console.error('Missed weekly reset check failed:', err));
 }

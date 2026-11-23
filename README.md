@@ -31,6 +31,11 @@ project — see [SCHEMA.md](SCHEMA.md) for the DB contract between the two.
    npm run dev
    ```
 
+`npm run check-env` verifies `.env` against Discord, Postgres and
+lostark.bible without starting the bot (read-only). `npm test` runs the unit
+tests (`test/`), which use dummy settings and never touch the real database
+or APIs.
+
 The scheduler polls in-process on two plain intervals — no queue or Redis
 involved. Designated Gold Earner characters are checked every
 `GOLD_EARNER_POLL_INTERVAL_MINUTES` (default 5); everyone else every

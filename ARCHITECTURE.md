@@ -412,12 +412,24 @@ so if one's already mid-run from its automatic schedule, `/check-now`'s
 call to that tier simply skips with its own warning. `startPolling()` also
 records each tier's next-fire timestamp (`getNextPollTimes()`), which
 `presence.js` reads to show a live countdown in the bot's Discord status.
+Each tier's *first* tick after startup is scheduled from data, not process
+start: due when its least-recently-checked active character is due
+(`last_checked_at` + interval), clamped to 30s–one interval
+(`computeFirstTickDelay()`), so restarts and deploys no longer push the
+hourly tier back by an hour each time.
 
-Within one tier's tick, it's the same sequential pass over its character
-list, with a flat 200ms delay between each — replaced an earlier BullMQ
+Within one tier's tick, `runTick()` first builds a per-tick context
+(`buildTickContext()`: every active challenge in one query, announcement
+channels memoized per guild), then groups rows by character (same linked
+account + name + region) so a character tracked in several servers is
+fetched from lostark.bible once and processed per row. It's a sequential
+pass with a flat 200ms delay between characters — replaced an earlier BullMQ
 setup that gave per-job isolation for free; that isolation is now explicit
-(a per-character try/catch inside the shared `runTick()` helper, so one
-character's failure doesn't abort the rest of the batch). For each character: fetch page 1,
+(a per-row try/catch, so one character's failure doesn't abort the rest of
+the batch). Recording is idempotent: `clear_history` stores the log id with
+a unique (character, log id) index, so a batch retried after a partial
+failure doesn't double-count; stats are recorded even when the guild has no
+announcement channel (only posting needs one). For each character: fetch page 1,
 diff against `last_seen_log_id` to find genuinely new entries — if the
 last-seen entry is no longer on page 1 (a gap: expired link renewed, bot
 down), `fetchEntriesSinceLastSeen()` pages back with the bosses filter until
@@ -478,7 +490,16 @@ from two different processes racing, not one process calling twice), wipe
 the channel, award the top-3 guess-parse badges for the week that just
 ended, then post the champions embed. No explicit leaderboard "reset" step
 exists anymore — moving `last_reset_at` forward is itself what makes next
-week's queries stop seeing old rows.
+week's queries stop seeing old rows. After the guild loop it prunes
+`raid_group_posts` claims older than 14 days.
+
+The schedule only looks forward, so `startWeeklyResetSchedule()` also checks
+at startup for a reset missed while the bot was down or restarting
+(`isMissedReset()`): a guild whose `last_reset_at` is before the current
+week's boundary gets the reset run immediately — but only within 24 hours
+of the boundary (later than that, wiping the channel mid-week would delete
+the week's posts, so it's logged and skipped), and never for a guild that
+has never been reset.
 
 ### `presence.js`
 Purely cosmetic — redraws the bot's Discord status every 30 seconds (well

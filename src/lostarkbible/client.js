@@ -1,5 +1,7 @@
 import { config } from '../config.js';
 import { TokenExpiredError, InsufficientScopeError } from './errors.js';
+import { fetchWithTimeout, retryAfterMs } from './http.js';
+import { normalizeLogEntry } from './logEntry.js';
 import { sleep } from '../utils/sleep.js';
 
 // 429 ("slow_down") is a shared app-wide throttle, not a per-caller thing —
@@ -10,7 +12,7 @@ import { sleep } from '../utils/sleep.js';
 const MAX_RATE_LIMIT_RETRIES = 4;
 
 async function request(path, accessToken, attempt = 0) {
-  const response = await fetch(`${config.laBibleBaseUrl}${path}`, {
+  const response = await fetchWithTimeout(`${config.laBibleBaseUrl}${path}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
@@ -28,9 +30,7 @@ async function request(path, accessToken, attempt = 0) {
       const body = await response.text().catch(() => '');
       throw new Error(`lostark.bible request failed: 429 ${body}`);
     }
-    const retryAfterHeader = response.headers.get('retry-after');
-    const delayMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 2 ** attempt * 1000;
-    await sleep(delayMs);
+    await sleep(retryAfterMs(response.headers.get('retry-after'), attempt));
     return request(path, accessToken, attempt + 1);
   }
   if (!response.ok) {
@@ -50,7 +50,8 @@ export function getRosters(accessToken) {
  * GET /api/oauth/logs/{characterName} — requires the `logs` scope.
  * Returns null if the character is hidden or has no public logs.
  * Entries are recent-first by `timestamp` (epoch ms); every entry is a
- * completed clear (the API doesn't surface wipes).
+ * completed clear (the API doesn't surface wipes). Each entry goes through
+ * normalizeLogEntry (see logEntry.js — the udps/ndps rename).
  */
 export async function getCharacterLogs(accessToken, characterName, region, { page = 1, bosses } = {}) {
   const params = new URLSearchParams({ region, page: String(page) });
@@ -63,21 +64,4 @@ export async function getCharacterLogs(accessToken, characterName, region, { pag
     accessToken,
   );
   return Array.isArray(logs) ? logs.map(normalizeLogEntry) : logs;
-}
-
-/**
- * lostark.bible renamed `udps` (unbuffed DPS) to `ndps` around Nov 2026 —
- * confirmed live: older entries carry `udps`, current ones carry `ndps`
- * with the same meaning, and the website's own log data no longer has a
- * `udps` field at all. Every consumer here (getRole, clear embeds,
- * /challenge targets, /guess-parse) reads `udps`, and without it a DPS
- * entry fell through getRole() to 'unknown' and got the stripped-down
- * embed. Aliasing it once at the API boundary keeps every caller working
- * against both shapes.
- */
-function normalizeLogEntry(entry) {
-  if (entry && entry.udps === undefined && entry.ndps !== undefined) {
-    return { ...entry, udps: entry.ndps };
-  }
-  return entry;
 }

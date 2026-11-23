@@ -1,4 +1,5 @@
 import { randomBytes, createHash } from 'node:crypto';
+import { fetchWithTimeout } from './http.js';
 import { config } from '../config.js';
 
 // Confirmed live against lostark.bible's own
@@ -49,7 +50,7 @@ export async function exchangeCodeForToken({ code, codeVerifier }) {
     code_verifier: codeVerifier,
   });
 
-  const response = await fetch(TOKEN_ENDPOINT, {
+  const response = await fetchWithTimeout(TOKEN_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params.toString(),
@@ -68,7 +69,7 @@ export async function exchangeCodeForToken({ code, codeVerifier }) {
  * no separate "Login with Discord" needed since this IS the Discord
  * identity, straight from lostark.bible's side. */
 export async function getOAuthUser(accessToken) {
-  const response = await fetch(`${config.laBibleBaseUrl}/api/oauth/user`, {
+  const response = await fetchWithTimeout(`${config.laBibleBaseUrl}/api/oauth/user`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!response.ok) {

@@ -1,23 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
-import { announceChannelCommand } from './announceChannel.js';
-import { checkNowCommand } from './checkNow.js';
-import { recentRaidsCommand } from './recentRaids.js';
-import { registeredUsersCommand } from './registeredUsers.js';
-import { trackCharacterCommand } from './trackCharacter.js';
-import { untrackCharacterCommand } from './untrackCharacter.js';
-import { characterPageCommand } from './characterPage.js';
-import { bonkCommand } from './bonk.js';
-import { bonkHardCommand } from './bonkHard.js';
-import { nukeCommand } from './nuke.js';
-import { myStatsCommand } from './myStats.js';
-import { guessParseCommand } from './guessParse.js';
-import { guessLeaderboardCommand } from './guessLeaderboard.js';
-import { untrackAllCommand } from './untrackAll.js';
-import { leaveServerCommand } from './leaveServer.js';
-import { linkAccountCommand } from './linkAccount.js';
-import { goldEarnersCommand } from './goldEarners.js';
-import { challengeCommand } from './challenge.js';
-import { challengeHistoryCommand } from './challengeHistory.js';
+import { CORE_COMMANDS } from './registry.js';
 import { FALLBACK_COLOR } from '../../notify/clearMessage.js';
 
 // Every other command's own (already-short) SlashCommandBuilder description
@@ -26,27 +8,7 @@ import { FALLBACK_COLOR } from '../../notify/clearMessage.js';
 // that could drift out of sync with the actual command. `help` itself is
 // appended manually below since it can't import its own not-yet-declared
 // export.
-const OTHER_COMMANDS = [
-  linkAccountCommand,
-  trackCharacterCommand,
-  untrackCharacterCommand,
-  goldEarnersCommand,
-  announceChannelCommand,
-  challengeCommand,
-  challengeHistoryCommand,
-  myStatsCommand,
-  characterPageCommand,
-  bonkCommand,
-  bonkHardCommand,
-  recentRaidsCommand,
-  registeredUsersCommand,
-  guessParseCommand,
-  guessLeaderboardCommand,
-  untrackAllCommand,
-  leaveServerCommand,
-  nukeCommand,
-  checkNowCommand,
-].map((c) => ({ name: c.data.name, description: c.data.description }));
+const OTHER_COMMANDS = CORE_COMMANDS.map((c) => ({ name: c.data.name, description: c.data.description }));
 
 const ALL_COMMANDS = [
   ...OTHER_COMMANDS,
@@ -58,8 +20,8 @@ const ALL_COMMANDS = [
 // a user needs to get a roster tracked (and untracked) lives here — every
 // other section is alphabetical within itself and doesn't need to be
 // memorized in order. Every command name must appear in exactly one
-// group; there's no runtime check for that, so a new command needs to be
-// added here too (this list is deliberately not derived from
+// group — a new command needs to be added here too (a startup warning
+// below flags any that aren't); this list is deliberately not derived from
 // ALL_COMMANDS, since the grouping itself — not just the membership — is
 // a judgment call).
 const COMMAND_GROUPS = [
@@ -78,6 +40,13 @@ const COMMAND_GROUPS = [
     names: ['announce-channel', 'leave-server', 'nuke', 'check-now', 'help'],
   },
 ];
+
+// Grouping stays hand-written, but a command missing from every group would
+// silently vanish from the /help list — flag it at startup instead.
+const groupedNames = new Set(COMMAND_GROUPS.flatMap((g) => g.names));
+for (const { name } of ALL_COMMANDS) {
+  if (!groupedNames.has(name)) console.warn(`/help: command "${name}" isn't in any COMMAND_GROUPS section.`);
+}
 
 // Longer, purely user-facing usage text for `/help <command>` — what you
 // see and can click/type, never the data model or checks happening behind

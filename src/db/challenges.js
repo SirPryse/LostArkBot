@@ -1,23 +1,11 @@
 import { pool } from './pool.js';
 
-/** Every currently-active challenge for a character — plural now that a
- * character can hold several at once (one per gate; see the migration
- * comment for why a challenge is gate-specific). poller.js calls this once
- * per character per poll tick (not per clear entry). */
-export async function getActiveChallengesForCharacter(trackedCharacterId) {
-  const { rows } = await pool.query(
-    "select * from challenges where tracked_character_id = $1 and status = 'active'",
-    [trackedCharacterId],
-  );
-  return rows;
-}
-
 /** Every active challenge across every character, with each row's owning
- * guild_id attached — the decoupled expiry sweep's data source
- * (poller.js's runChallengeExpiryTick). Unlike getActiveChallengesForCharacter,
- * this isn't scoped to a poll tick reaching any particular character, so a
- * character that's stopped playing (or landed in the slower non-earner
- * poll tier) still gets its stale challenges failed close to on time. */
+ * guild_id attached. Used by the decoupled expiry sweep (poller.js's
+ * runChallengeExpiryTick — not tied to any character's poll tick, so a
+ * character that's stopped playing still gets stale challenges failed on
+ * time) and loaded once per poll tick for checking new clears against
+ * (buildTickContext), instead of one query per character. */
 export async function getAllActiveChallenges() {
   const { rows } = await pool.query(`
     select c.*, tc.guild_id
@@ -161,13 +149,20 @@ export async function listChallengesForDiscordUser(discordUserId, guildId) {
  * challenge now, there's no more "met some, not others" intermediate
  * state: a matching clear either completes it (met) or fails it (missed),
  * full stop. `status` is 'completed' or 'failed'; `completed_at` only ever
- * gets set for a real completion. */
+ * gets set for a real completion.
+ *
+ * Only ever transitions a still-active challenge, and returns whether this
+ * call was the one that did — the poller and the separate expiry sweep can
+ * both reach the same challenge at once, and without this both would
+ * announce a result (and the later write would overwrite the earlier one).
+ * Callers must skip their announcement when this returns false. */
 export async function resolveChallenge(challengeId, status) {
-  await pool.query(
+  const { rowCount } = await pool.query(
     `update challenges
      set status = $2, met = ($2 = 'completed'), met_at = now(),
          completed_at = case when $2 = 'completed' then now() else completed_at end
-     where id = $1`,
+     where id = $1 and status = 'active'`,
     [challengeId, status],
   );
+  return rowCount > 0;
 }
