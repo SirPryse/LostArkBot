@@ -116,12 +116,29 @@ export async function announceClear(discordClient, guildId, channelId, entry, vi
     return;
   }
 
-  const channel = await discordClient.channels.fetch(existing.channel_id);
+  const channel = await discordClient.channels.fetch(existing.channel_id).catch(() => null);
   // force: true — this message is likely already cached from a previous
   // poll's edit, and a cached read here would miss whatever the most
   // recent party member's edit just added, silently dropping their block
   // from the next append instead of building on top of it.
-  const existingMessage = await channel.messages.fetch({ message: existing.message_id, force: true });
+  const existingMessage = channel
+    ? await channel.messages.fetch({ message: existing.message_id, force: true }).catch((err) => {
+        if (err.code === 10008) return null; // Unknown Message — deleted
+        throw err;
+      })
+    : null;
+
+  if (!existingMessage) {
+    // The group's post was deleted (a mod, /nuke) or its channel is gone.
+    // This used to throw on every tick, so the character's batch never
+    // finished and was retried forever (seen live: Unknown Message every
+    // 5 min). Start a fresh post in the current announcement channel and
+    // re-point the group at it so later party members append there.
+    const target = await discordClient.channels.fetch(channelId);
+    const sent = await target.send(buildInitialClearMessage(entry, viewMode));
+    await setMessageWithRetry(guildId, entry.id, channelId, sent.id);
+    return;
+  }
   const existingContainerJson = existingMessage.components[0]?.toJSON();
 
   if (existingContainerJson && containerHasMember(existingContainerJson, entry.name)) {
