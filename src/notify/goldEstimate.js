@@ -59,32 +59,39 @@ const GOLD_ESTIMATE = {
   'Mordum, the Abyssal Punisher': {
     Normal: 10_000,
     Hard: 14_000,
+    // Act 3 Extreme (Echoes of Thunder, Nov 2026) — official patch notes.
+    'Extreme Normal': 20_000,
+    'Extreme Hard': 50_000,
   },
+  // Armoche (Act 4) and Kazeros (Denouement) below were cut in the
+  // "Dimensions Unbound" patch (Sep 16 2026) — official patch notes.
   'Brelshaza, Ember in the Ashes': {
-    Normal: 12_500,
-    Hard: 15_000,
+    Normal: 10_000,
+    Hard: 13_500,
   },
   'Armoche, Sentinel of the Abyss': {
-    Normal: 20_500,
-    Hard: 27_000,
+    Normal: 17_000,
+    Hard: 24_500,
   },
   'Abyss Lord Kazeros': {
-    Normal: 14_000,
-    Hard: 17_000,
+    Normal: 11_000,
+    Hard: 16_000,
   },
   'Archdemon Kazeros': {
-    Normal: 26_000,
+    Normal: 21_000,
   },
   'Death Incarnate Kazeros': {
-    Hard: 35_000,
+    Hard: 32_000,
   },
+  // Serca Normal also cut on Sep 16 2026; Hard/Nightmare weren't listed in
+  // that patch, so they're unchanged.
   'Witch of Agony, Serca': {
-    Normal: 14_000,
+    Normal: 13_000,
     Hard: 17_500,
     Nightmare: 21_000,
   },
   'Corvus Tul Rak': {
-    Normal: 21_000,
+    Normal: 19_000,
     Hard: 26_500,
     Nightmare: 33_000,
   },
@@ -97,6 +104,20 @@ const GOLD_ESTIMATE = {
     'Level 1': 16_500,
     'Level 2': 24_000,
     'Level 3': 30_000,
+  },
+  // Belgardin (Oct 2026) — official notes give no gold figures; these are
+  // the in-game Gate Info values as recorded by NamuWiki and the
+  // LostArk-Checklist project (both agree). Base clear gold only, not the
+  // bonus chest.
+  'Belgardin, Arbiter of Death': {
+    Normal: 20_000,
+    Hard: 25_000,
+    Nightmare: 30_000,
+  },
+  'Phaetus An Kragma': {
+    Normal: 30_000,
+    Hard: 37_000,
+    Nightmare: 45_000,
   },
 };
 

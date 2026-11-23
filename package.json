@@ -10,7 +10,8 @@
     "dev": "node --watch src/index.js",
     "migrate": "node scripts/migrate.js",
     "migrate:down": "node scripts/migrate.js down",
-    "deploy-commands": "node src/discord/deployCommands.js"
+    "deploy-commands": "node src/discord/deployCommands.js",
+    "check-env": "node scripts/check-env.js"
   },
   "dependencies": {
     "discord.js": "^14.16.3",

@@ -79,7 +79,9 @@ function formatPercentile(fraction) {
 
 export function getRole(logEntry) {
   if ('bdps' in logEntry) return 'support';
-  if ('udps' in logEntry) return 'dps';
+  // `ndps` is lostark.bible's newer name for `udps` — see normalizeLogEntry
+  // in lostarkbible/client.js.
+  if ('udps' in logEntry || 'ndps' in logEntry) return 'dps';
   return 'unknown';
 }
 

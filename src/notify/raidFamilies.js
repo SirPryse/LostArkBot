@@ -26,6 +26,42 @@
 // check progress on right now.
 export const RAID_FAMILIES = [
   {
+    // Kazeros Raid: Act 3 Extreme ("Echoes of Thunder", Nov 18 - Dec 16
+    // 2026) — the final gate of Act 3 (Mordum) only, same single-encounter
+    // shape as the other Extremes. Nightmare was removed before launch;
+    // 1 entry per roster per week shared across both difficulties, gold
+    // paid regardless of Gold-Earner status (official patch notes).
+    //
+    // UNVERIFIED: the difficulty strings. Aegir Extreme logs come through
+    // as "Extreme Normal"/"Extreme Hard", so this assumes Act 3 Extreme
+    // does the same — no Act 3 Extreme log had been seen yet when this was
+    // added. If lostark.bible reports plain "Normal"/"Hard" instead, these
+    // clears will be counted as regular Mordum Gate 3 and this needs
+    // revisiting.
+    key: 'mordum-extreme',
+    label: 'Mordum Extreme',
+    hideGateNumber: true,
+    alwaysPaysGold: true,
+    difficulties: ['Extreme Normal', 'Extreme Hard'],
+    // Patch notes don't state the gold type — assumed 100% Unbound like
+    // the confirmed Aegir/Brelshaza Extremes above, same Extreme system.
+    fullyUnboundDifficulties: ['Extreme Normal', 'Extreme Hard'],
+    gates: [
+      [{ name: 'Mordum, the Abyssal Punisher', difficulties: ['Extreme Normal', 'Extreme Hard'] }],
+    ],
+  },
+  {
+    // Shadow Raid: Belgardin ("Arbiter of Death", Oct 21 2026). Gate order
+    // and boss names confirmed from live lostark.bible logs (Belgardin
+    // clears land ~10-15 min before the Phaetus clear of the same run).
+    // Gold sharing the regular end-content gold count, so it competes for
+    // one of the 3 weekly gold-earner slots like any non-Extreme raid.
+    key: 'belgardin',
+    label: 'Belgardin',
+    difficulties: ['Normal', 'Hard', 'Nightmare'],
+    gates: [['Belgardin, Arbiter of Death'], ['Phaetus An Kragma']],
+  },
+  {
     key: 'aegir-extreme',
     label: 'Aegir Extreme',
     // Extreme raids aren't gated the way regular raids are — just one
@@ -139,10 +175,12 @@ export const RAID_FAMILIES = [
     key: 'mordum',
     label: 'Mordum',
     difficulties: ['Normal', 'Hard'],
+    // Gate 3's boss name is shared with Mordum Extreme (separate family
+    // above) — restricted the same way as Aegir/Brelshaza Gate 2.
     gates: [
       ['Infernas'],
       ['Blossoming Fear, Naitreya'],
-      ['Mordum, the Abyssal Punisher'],
+      [{ name: 'Mordum, the Abyssal Punisher', difficulties: ['Normal', 'Hard'] }],
     ],
   },
   {

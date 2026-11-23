@@ -18,6 +18,45 @@ shared across all three difficulties (clearing one difficulty uses the
 week's only entry), and their gold is awarded regardless of Gold-Earner
 status — an Extreme clear doesn't consume any of the 3-raid weekly cap.
 
+## Mordum Extreme (Kazeros Raid: Act 3 Extreme)
+
+Released with "Echoes of Thunder" — available Nov 18 to Dec 16, 2026
+(followed by Denouement Extreme, Dec 16 to Jan 13, 2027 — not tracked yet,
+numbers not published). Based on Act 3's final gate (Mordum). Nightmare
+was removed before launch. 1 entry per roster per week shared across both
+difficulties; gold paid in full regardless of Gold-Earner status. Plus
+Thunder Coins (150 Normal / 200 Hard) not reflected below. Gold type split
+not stated in the patch notes — the code assumes 100% Unbound like the
+other Extremes.
+
+**Unverified:** the difficulty strings lostark.bible reports for this raid
+— assumed "Extreme Normal"/"Extreme Hard" like Aegir Extreme. Check the
+first real Act 3 Extreme log and fix `raidFamilies.js` if it differs.
+
+| Gate | Boss | Difficulty | Min iLvl | Character Gold | Roster Gold | Unbound Gold | Total Gold |
+|---|---|---|---|---|---|---|---|
+| — | Mordum, the Abyssal Punisher | Extreme Normal | 1730 | | | | 20,000 |
+| — | Mordum, the Abyssal Punisher | Extreme Hard | 1770 | | | | 50,000 |
+
+## Belgardin
+
+Shadow Raid, released with "Arbiter of Death" (Oct 21, 2026). Gate order
+and boss names confirmed from live lostark.bible logs. Shares the regular
+end-content gold count (competes for one of the 3 weekly slots). Official
+notes give no gold figures — these are the in-game Gate Info values as
+recorded by NamuWiki and the LostArk-Checklist project (they agree). Split
+not stated for Normal/Hard/Nightmare (only Matching Mode is stated as 50/50
+general/bound), so the code uses the 50/50 default.
+
+| Gate | Boss | Difficulty | Min iLvl | Character Gold | Roster Gold | Unbound Gold | Total Gold |
+|---|---|---|---|---|---|---|---|
+| 1 | Belgardin, Arbiter of Death | Normal | 1750 | | | | 20,000 |
+| 1 | Belgardin, Arbiter of Death | Hard | 1770 | | | | 25,000 |
+| 1 | Belgardin, Arbiter of Death | Nightmare | 1780 | | | | 30,000 |
+| 2 | Phaetus An Kragma | Normal | 1750 | | | | 30,000 |
+| 2 | Phaetus An Kragma | Hard | 1770 | | | | 37,000 |
+| 2 | Phaetus An Kragma | Nightmare | 1780 | | | | 45,000 |
+
 ## Aegir Extreme
 
 Total gold includes Coin of Fire and Ice tokens (150 on Normal, 200 on
@@ -66,12 +105,16 @@ that matched exactly — confirmed **100% Unbound Gold** (not the 50/50 that
 Normal pays), not the maxroll-default split assumption. See
 `fullyUnboundDifficulties` on Serca's family entry in `raidFamilies.js`.
 
+Normal was cut in "Dimensions Unbound" (Sep 16, 2026): Gate 1 14,000 →
+13,000, Gate 2 21,000 → 19,000. Hard/Nightmare weren't listed in that
+patch, so they're unchanged.
+
 | Gate | Boss | Difficulty | Min iLvl | Character Gold | Roster Gold | Unbound Gold | Total Gold |
 |---|---|---|---|---|---|---|---|
-| 1 | Witch of Agony, Serca | Normal | 1710 | | 7,000 | 7,000 | 14,000 |
+| 1 | Witch of Agony, Serca | Normal | 1710 | | 6,500 | 6,500 | 13,000 |
 | 1 | Witch of Agony, Serca | Hard | 1730 | | 0 | 17,500 | 17,500 |
 | 1 | Witch of Agony, Serca | Nightmare | 1740 | | 0 | 21,000 | 21,000 |
-| 2 | Corvus Tul Rak | Normal | 1710 | | 10,500 | 10,500 | 21,000 |
+| 2 | Corvus Tul Rak | Normal | 1710 | | 9,500 | 9,500 | 19,000 |
 | 2 | Corvus Tul Rak | Hard | 1730 | | 0 | 26,500 | 26,500 |
 | 2 | Corvus Tul Rak | Nightmare | 1740 | | 0 | 33,000 | 33,000 |
 
@@ -83,24 +126,31 @@ Hard is confirmed **100% Unbound Gold** (not 50/50, and not the same as
 Normal's split) — see `fullyUnboundDifficulties` on Kazeros' family entry
 in `raidFamilies.js`.
 
+This is "Kazeros Raid Denouement" in the patch notes. Every gate and
+difficulty was cut in "Dimensions Unbound" (Sep 16, 2026) — official
+figures below (Normal 14,000/26,000 → 11,000/21,000; Hard 17,000/35,000 →
+16,000/32,000). The splits are carried over from before the cut.
+
 | Gate | Boss | Difficulty | Min iLvl | Character Gold | Roster Gold | Unbound Gold | Total Gold |
 |---|---|---|---|---|---|---|---|
-| 1 | Abyss Lord Kazeros | Normal | 1710 | | 7,000 | 7,000 | 14,000 |
-| 1 | Abyss Lord Kazeros | Hard | 1730 | | 0 | 17,000 | 17,000 |
-| 2 | Archdemon Kazeros | Normal | 1710 | | 13,000 | 13,000 | 26,000 |
-| 2 | Death Incarnate Kazeros | Hard | 1730 | | 0 | 35,000 | 35,000 |
+| 1 | Abyss Lord Kazeros | Normal | 1710 | | 5,500 | 5,500 | 11,000 |
+| 1 | Abyss Lord Kazeros | Hard | 1730 | | 0 | 16,000 | 16,000 |
+| 2 | Archdemon Kazeros | Normal | 1710 | | 10,500 | 10,500 | 21,000 |
+| 2 | Death Incarnate Kazeros | Hard | 1730 | | 0 | 32,000 | 32,000 |
 
 ## Armoche
 
-Same caveat as Kazeros above — Normal's split is patch-note-confirmed
-current; Hard's total is maxroll-sourced only, split unknown.
+This is "Kazeros Raid Act 4" in the patch notes. Every gate and difficulty
+was cut in "Dimensions Unbound" (Sep 16, 2026) — official figures below
+(Normal 12,500/20,500 → 10,000/17,000; Hard 15,000/27,000 →
+13,500/24,500). Hard's split is still unknown.
 
 | Gate | Boss | Difficulty | Min iLvl | Character Gold | Roster Gold | Unbound Gold | Total Gold |
 |---|---|---|---|---|---|---|---|
-| 1 | Brelshaza, Ember in the Ashes | Normal | 1700 | | 6,250 | 6,250 | 12,500 |
-| 1 | Brelshaza, Ember in the Ashes | Hard | 1720 | | | | 15,000 |
-| 2 | Armoche, Sentinel of the Abyss | Normal | 1700 | | 10,250 | 10,250 | 20,500 |
-| 2 | Armoche, Sentinel of the Abyss | Hard | 1720 | | | | 27,000 |
+| 1 | Brelshaza, Ember in the Ashes | Normal | 1700 | | 5,000 | 5,000 | 10,000 |
+| 1 | Brelshaza, Ember in the Ashes | Hard | 1720 | | | | 13,500 |
+| 2 | Armoche, Sentinel of the Abyss | Normal | 1700 | | 8,500 | 8,500 | 17,000 |
+| 2 | Armoche, Sentinel of the Abyss | Hard | 1720 | | | | 24,500 |
 
 ## Mordum
 
@@ -161,25 +211,30 @@ Armoche's own numbers not changing). **Whenever any raid/gold/iLvl value
 above is added or edited, re-run this ranking by hand and update the table
 — don't assume it still holds.**
 
-| iLvl | Best 3 families (difficulty) | Subtotal | Extreme (both, if unlocked) | Extreme gold | Weekly total |
+Recomputed 2026-11-23 from the live code (`challengeRaids.js`'s picker)
+after adding Belgardin/Mordum Extreme and the Sep 2026 gold cuts. Extreme
+column = every Extreme the code tracks that the iLvl unlocks. Mordum
+Extreme is time-limited (to Dec 16, 2026), and whether Aegir/Brelshaza
+Extreme are still open wasn't confirmed — drop whichever have ended.
+
+| iLvl | Best 3 families (difficulty) | Subtotal | Extremes unlocked | Extreme gold | Weekly total |
 |---|---|---|---|---|---|
 | 1660 | Aegir (N) — only one unlocked | 11,500 | — | — | 11,500 |
 | 1670 | Brelshaza (N), Aegir (N) — only two | 28,000 | — | — | 28,000 |
 | 1680 | Mordum (N), Aegir (H), Brelshaza (N) | 55,500 | — | — | 55,500 |
 | 1690 | Brelshaza (H), Mordum (N), Aegir (H) | 62,000 | — | — | 62,000 |
-| 1700 | Armoche (N), Cathedral (L1), Mordum (H) | 90,000 | — | — | 90,000 |
-| 1710 | Kazeros (N), Serca (N), Armoche (N) | 108,000 | — | — | 108,000 |
-| 1720 | Armoche (H), Kazeros (N), Cathedral (L2) | 122,000 | Aegir Extreme (N) + Brelshaza Extreme (N) | 40,000 | 162,000 |
-| 1730 | Kazeros (H), Serca (H), Armoche (H) | 138,000 | Aegir Extreme (N) + Brelshaza Extreme (N) | 40,000 | 178,000 |
-| 1740 | Serca (NM), Kazeros (H), Armoche (H) | 148,000 | Aegir Extreme (N) + Brelshaza Extreme (N) | 40,000 | 188,000 |
-| 1750 | Serca (NM), Kazeros (H), Cathedral (L3) | 156,000 | Aegir Extreme (H) + Brelshaza Extreme (H) | 90,000 | 246,000 |
-| 1770 | Serca (NM), Kazeros (H), Cathedral (L3) | 156,000 | Aegir Extreme (NM) + Brelshaza Extreme (NM) | 90,000 | 246,000* |
+| 1700 | Cathedral (L1), Armoche (N), Mordum (H) | 84,000 | — | — | 84,000 |
+| 1710 | Serca (N), Kazeros (N), Cathedral (L1) | 94,000 | — | — | 94,000 |
+| 1720 | Cathedral (L2), Armoche (H), Serca (N) | 110,000 | Aegir Ex (N) + Brelshaza Ex (N) | 40,000 | 150,000 |
+| 1730 | Kazeros (H), Serca (H), Cathedral (L2) | 132,000 | Mordum Ex (N) + Aegir Ex (N) + Brelshaza Ex (N) | 60,000 | 192,000 |
+| 1740 | Serca (NM), Kazeros (H), Cathedral (L2) | 142,000 | Mordum Ex (N) + Aegir Ex (N) + Brelshaza Ex (N) | 60,000 | 202,000 |
+| 1750 | Serca (NM), Belgardin (N), Cathedral (L3) | 154,000 | Mordum Ex (N) + Aegir Ex (H) + Brelshaza Ex (H) | 110,000 | 264,000 |
+| 1770 | Belgardin (H), Serca (NM), Cathedral (L3) | 166,000 | Mordum Ex (H) + Aegir Ex (NM) + Brelshaza Ex (NM) | 140,000 | 306,000 |
+| 1780 | Belgardin (NM), Serca (NM), Cathedral (L3) | 179,000 | Mordum Ex (H) + Aegir Ex (NM) + Brelshaza Ex (NM) | 140,000 | 319,000 |
 
-\* Same gold as 1750 — nothing currently in this file unlocks a
-higher-paying tier between 1750 and 1770; Extreme Nightmare only adds
-harder content/title rewards at this iLvl, not more gold.
+(At 1750, Belgardin Normal and Cathedral L3 tie at 50,000.)
 
-Live-code-verified (2026-08-30): a from-scratch ground-truth
+Previously live-code-verified (2026-08-30, before the rows above changed): a from-scratch ground-truth
 implementation, cross-checked against `challengeRaids.js`'s picker,
 `goldEstimate.js`'s live weekly calc (`/bonk`), and `clearHistory.js`'s
 DB-backed calc (`/my-stats`/`/character-page`), agreed exactly with every
@@ -225,6 +280,11 @@ Notes:
   which gold type it's paid in.
 
 ## Sources
+
+- [Official — Echoes of Thunder (Nov 2026)](https://www.playlostark.com/en-us/game/releases/echoes-of-thunder) — Kazeros Raid: Act 3 Extreme (Mordum Extreme)
+- [Official — Arbiter of Death (Oct 2026)](https://www.playlostark.com/en-us/game/releases/arbiter-of-death) — Belgardin release, iLvls, boss art (`assets/bosses/belgardin.webp`)
+- [Official — Dimensions Unbound (Sep 2026)](https://www.playlostark.com/en-us/game/releases/dimensions-unbound) — gold cuts to Act 4 (Armoche), Denouement (Kazeros), Serca Normal
+- [NamuWiki — Shadow Raid/Belgardin](https://en.namu.wiki/w/%EA%B7%B8%EB%A6%BC%EC%9E%90%20%EB%A0%88%EC%9D%B4%EB%93%9C/%EB%B2%A8%EA%B0%80%EB%A5%B4%EB%94%98) and [LostArk-Checklist PR #85](https://github.com/shotgun175/LostArk-Checklist/pull/85) — Belgardin per-gate gold (in-game Gate Info)
 
 - [Maxroll — Gear Progression Guide](https://maxroll.gg/lost-ark/resources/gear-progression-guide)
 - [Maxroll — Aegir Gate 1](https://maxroll.gg/lost-ark/kazeros-raids/aegir-gate-1) / [Gate 2](https://maxroll.gg/lost-ark/kazeros-raids/aegir-gate-2)

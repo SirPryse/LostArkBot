@@ -40,6 +40,18 @@ const MIN_ILVL = {
   'Mordum, the Abyssal Punisher': {
     Normal: 1680,
     Hard: 1700,
+    'Extreme Normal': 1730,
+    'Extreme Hard': 1770,
+  },
+  'Belgardin, Arbiter of Death': {
+    Normal: 1750,
+    Hard: 1770,
+    Nightmare: 1780,
+  },
+  'Phaetus An Kragma': {
+    Normal: 1750,
+    Hard: 1770,
+    Nightmare: 1780,
   },
   'Brelshaza, Ember in the Ashes': {
     Normal: 1700,

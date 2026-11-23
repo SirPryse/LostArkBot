@@ -23,6 +23,10 @@ const ARMOCHE_GATE_2 = asset('armoche-gate2.webp');
 const MORDUM_GATE_1 = asset('mordum-gate1.webp');
 const MORDUM_GATE_2 = asset('mordum-gate2.webp');
 const MORDUM_GATE_3 = asset('mordum-gate3.webp');
+// Official "Arbiter of Death" release key art (playlostark.com), resized
+// to match the other banners. No gate-specific art exists yet, so both
+// gates share it, same as Serca/Cathedral.
+const BELGARDIN = asset('belgardin.webp');
 // Sitting in assets/bosses/ but not yet wired to a boss name below:
 // echidna.webp (not a currently-tracked raid).
 
@@ -53,7 +57,10 @@ const BOSS_IMAGES = {
   'Phantom Manifester Brelshaza': BRELSHAZA,
   'Infernas': MORDUM_GATE_1,
   'Blossoming Fear, Naitreya': MORDUM_GATE_2,
+  // Also covers Mordum Extreme (Act 3 Extreme) — same boss name.
   'Mordum, the Abyssal Punisher': MORDUM_GATE_3,
+  'Belgardin, Arbiter of Death': BELGARDIN,
+  'Phaetus An Kragma': BELGARDIN,
 };
 
 export function getBossImagePath(bossName) {
