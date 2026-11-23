@@ -9,7 +9,8 @@ import {
   AttachmentBuilder,
   MessageFlags,
 } from 'discord.js';
-import { getByDiscordUserId, markNeedsReauth } from '../../db/linkedAccounts.js';
+import { getByDiscordUserId } from '../../db/linkedAccounts.js';
+import { flagNeedsReauth } from '../../notify/reauthNotice.js';
 import { listCompetitiveByLinkedAccountAndGuild, getCompetitiveByIdForDiscordUser } from '../../db/trackedCharacters.js';
 import { getGoldEarnerKeySet } from '../../db/goldEarners.js';
 import {
@@ -393,7 +394,7 @@ export const challengeCommand = {
 
         const payload = await buildChallengePayload(character);
         if (payload.error) {
-          if (payload.needsReauth) await markNeedsReauth(character.linked_account_id);
+          if (payload.needsReauth) await flagNeedsReauth(interaction.client, character.linked_account_id);
           await interaction.editReply({ content: payload.error, embeds: [], components: [] });
           return;
         }
@@ -416,7 +417,7 @@ export const challengeCommand = {
 
         const payload = await buildChallengePayload(character, bossName);
         if (payload.error) {
-          if (payload.needsReauth) await markNeedsReauth(character.linked_account_id);
+          if (payload.needsReauth) await flagNeedsReauth(interaction.client, character.linked_account_id);
           await interaction.editReply({ content: payload.error, embeds: [], components: [] });
           return;
         }

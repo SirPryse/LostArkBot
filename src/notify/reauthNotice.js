@@ -1,6 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { listAnnouncementChannels, getReauthNoticeMessageId, setReauthNoticeMessageId } from '../db/guildSettings.js';
-import { listReauthCandidatesForGuild } from '../db/linkedAccounts.js';
+import { listReauthCandidatesForGuild, markNeedsReauth } from '../db/linkedAccounts.js';
 
 // lostark.bible tokens last 90 days with no refresh token, and the poller
 // used to just flip an expired account to needs_reauth silently — nobody
@@ -101,6 +101,18 @@ export async function refreshAllReauthNotices(discordClient) {
       ),
     ),
   );
+}
+
+/** The one way to flag an expired/401'd link: marks the account
+ * needs_reauth and, only if that actually changed its status, refreshes
+ * the notices in the background (never blocks or fails the caller). Used by
+ * the poller and every command that can discover an expired token. */
+export async function flagNeedsReauth(discordClient, linkedAccountId) {
+  const changed = await markNeedsReauth(linkedAccountId);
+  if (changed) {
+    refreshAllReauthNotices(discordClient).catch((err) => console.error('Re-link notice refresh failed:', err));
+  }
+  return changed;
 }
 
 /** After the weekly channel clear wiped the old post — always sends a

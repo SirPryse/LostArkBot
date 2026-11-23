@@ -50,10 +50,12 @@ exists:
 
 1. Run `/announce-channel` in your test server to set the announcement
    channel (if you haven't already).
-2. The first poll for a newly tracked character announces its current most
-   recent clear(s) from page 1 (not full history — just what's visible on
-   that page), so something shows up in Discord right after registering
-   rather than staying silent. See `src/scheduler/poller.js`.
+2. The first poll for a newly tracked character only records a baseline
+   (its newest log id) — nothing is announced until it clears something
+   new. After a gap (an expired link renewed with `/link-account`, or the
+   bot being down) it pages back to the last clear it saw: clears older
+   than 6 hours are recorded for stats/gold silently, newer ones are
+   announced. See `processCharacter()` in `src/scheduler/poller.js`.
 3. Use `/check-now` to force a poll cycle (both tiers) any time without
    waiting for `GOLD_EARNER_POLL_INTERVAL_MINUTES`/`OTHER_POLL_INTERVAL_MINUTES`.
 4. To see it announce again, null out `last_seen_log_id` for that row and run
@@ -62,16 +64,27 @@ exists:
 
 ## Clear announcement embeds
 
-`src/notify/embed.js` builds the announcement, and infers support vs. DPS
-role from which fields the API actually returned for that entry (`bdps`
-present → support, `udps` present → DPS) rather than the class name:
+`src/notify/clearMessage.js` builds the announcement (Components V2), and
+infers support vs. DPS role from which fields the API actually returned for
+that entry rather than the class name: `bdps` present → support, `udps` or
+`ndps` present → DPS. (lostark.bible renamed `udps` to `ndps` in Nov 2026;
+`getCharacterLogs()` aliases `ndps` back to `udps` so every consumer keeps
+working on both shapes.)
 
-- **Support**: DPS, Buff Contribution (bDPS — damage their buffs added to
-  the raid), Raid Contribution (`rContribution` as a %)
-- **DPS**: Total Damage (computed from `dps × duration`), DPS, Contribution
-  (rDPS)
+- **Support**: buff uptimes, rDPS / rDPS%, uptime + contribution percentile
+- **DPS**: DPS, UDPS, Min. DPS ✅/⚠️ (from `src/notify/minDps.js`),
+  percentile
 
-Every boss currently gets the same placeholder portrait
-(`assets/bosses/placeholder.png`, generated locally — a flat Discord-blurple
-square). To use real art: drop a PNG per boss into `assets/bosses/` and point
-that boss's entry in `src/notify/bossImages.js` at the new file.
+Boss art lives in `assets/bosses/` and is mapped per boss name in
+`src/notify/bossImages.js`; anything unmapped falls back to
+`assets/bosses/lostark.png`.
+
+## Expired lostark.bible links
+
+Links last 90 days with no refresh token. `src/notify/reauthNotice.js` keeps
+one "re-link needed" post per server in the announcement channel, mentioning
+everyone whose link has expired or expires within 3 days. It's edited in
+place (edits don't re-ping), deleted once nobody needs to re-link, and
+re-posted after the weekly channel clear or `/nuke`. Anything that discovers
+an expired token should call `flagNeedsReauth()` from that module rather than
+`markNeedsReauth()` directly, so the notice updates immediately.

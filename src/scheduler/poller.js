@@ -6,8 +6,7 @@ import {
   updateLastSeen,
   getNameAndClassById,
 } from '../db/trackedCharacters.js';
-import { markNeedsReauth } from '../db/linkedAccounts.js';
-import { refreshAllReauthNotices } from '../notify/reauthNotice.js';
+import { flagNeedsReauth } from '../notify/reauthNotice.js';
 import { getAnnouncementChannel } from '../db/guildSettings.js';
 import { recordClear } from '../db/clearHistory.js';
 import { getActiveChallengesForCharacter, getAllActiveChallenges, resolveChallenge } from '../db/challenges.js';
@@ -479,7 +478,7 @@ export async function checkChallengeProgress(discordClient, guildId, channelId, 
 async function processCharacter(discordClient, row) {
   if (row.account_status !== 'active') return;
   if (new Date(row.token_expires_at) <= new Date()) {
-    if (await markNeedsReauth(row.linked_account_id)) await refreshAllReauthNotices(discordClient);
+    await flagNeedsReauth(discordClient, row.linked_account_id);
     return;
   }
 
@@ -490,7 +489,7 @@ async function processCharacter(discordClient, row) {
     entries = await getCharacterLogs(accessToken, row.character_name, row.region, { page: 1 });
   } catch (err) {
     if (err instanceof TokenExpiredError) {
-      if (await markNeedsReauth(row.linked_account_id)) await refreshAllReauthNotices(discordClient);
+      await flagNeedsReauth(discordClient, row.linked_account_id);
       return;
     }
     if (err instanceof InsufficientScopeError) {

@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { getByDiscordUserId, markNeedsReauth } from '../../db/linkedAccounts.js';
+import { getByDiscordUserId } from '../../db/linkedAccounts.js';
+import { flagNeedsReauth } from '../../notify/reauthNotice.js';
 import { listDistinctByLinkedAccount } from '../../db/trackedCharacters.js';
 import { decryptToken } from '../../crypto/tokenCipher.js';
 import { TokenExpiredError, InsufficientScopeError } from '../../lostarkbible/errors.js';
@@ -115,7 +116,7 @@ export const bonkHardCommand = {
         entries = await fetchLogsSince(accessToken, name, region, boundaryMs);
       } catch (err) {
         if (err instanceof TokenExpiredError) {
-          await markNeedsReauth(account.id);
+          await flagNeedsReauth(interaction.client, account.id);
           await interaction.editReply(`${targetUser}'s lostark.bible link expired mid-check.`);
           return;
         }

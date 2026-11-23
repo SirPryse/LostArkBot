@@ -108,7 +108,8 @@ export async function listCompetitiveWithAccountByGuild(guildId) {
       la.status as account_status
     from tracked_characters tc
     join linked_accounts la on la.id = tc.linked_account_id
-    where tc.enabled = true and tc.guild_id = $1 and tc.view_mode = 'competitive' and la.status = 'active'`,
+    where tc.enabled = true and tc.guild_id = $1 and tc.view_mode = 'competitive' and la.status = 'active'
+      and la.token_expires_at > now()`,
     [guildId],
   );
   return rows;
@@ -141,7 +142,10 @@ export async function listByGuild(guildId) {
       tc.region,
       tc.enabled,
       la.discord_user_id,
-      la.status as account_status
+      -- An expired token still reads 'active' until something flags it;
+      -- report it as needs_reauth right away (matches the re-link notice).
+      case when la.status = 'active' and la.token_expires_at <= now() then 'needs_reauth' else la.status end
+        as account_status
     from tracked_characters tc
     join linked_accounts la on la.id = tc.linked_account_id
     where tc.guild_id = $1

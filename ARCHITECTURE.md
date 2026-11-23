@@ -58,7 +58,9 @@ These aren't commands, but almost every command leans on at least one:
   `DISPLAY_NAME_ALIASES` handles genuinely different spellings.
 - **`src/notify/clearMessage.js`** — builds the Components-V2 message for a
   real clear announcement, and is where `getRole()` (support vs. dps vs.
-  unknown, inferred from whether the entry has `bdps` or `udps`) lives —
+  unknown, inferred from whether the entry has `bdps` or `udps`/`ndps` —
+  lostark.bible renamed `udps` to `ndps` in Nov 2026, and
+  `getCharacterLogs()` aliases it back to `udps` for every caller) lives —
   every other command that needs a role calls this same function rather than
   re-deriving it. Also owns the "consolidate multiple party members from the
   same raid into one message" logic (`containerHasMember`/
@@ -245,10 +247,11 @@ guild-wide — `/untrack-all`'s prompt states the character count up front so
 an admin knows the blast radius before confirming.
 
 ### `/announce-channel` — `announceChannel.js`
-Admin-only (`ManageGuild`). Just `setAnnouncementChannel()` — one row per
+Admin-only (`ManageGuild`). `setAnnouncementChannel()` — one row per
 guild in `guild_settings`. This is the channel `poller.js` posts real clears
 to and `weeklyReset.js` wipes/reposts to; nothing announces anywhere until
-this is set once.
+this is set once. Changing it moves the re-link notice: the old post is
+deleted and a fresh one goes up in the new channel.
 
 ### `/check-now` — `checkNow.js`
 Admin-only debug command — fires `runPollTick()` immediately instead of
@@ -415,7 +418,13 @@ list, with a flat 200ms delay between each — replaced an earlier BullMQ
 setup that gave per-job isolation for free; that isolation is now explicit
 (a per-character try/catch inside the shared `runTick()` helper, so one
 character's failure doesn't abort the rest of the batch). For each character: fetch page 1,
-diff against `last_seen_log_id` to find genuinely new entries, announce each
+diff against `last_seen_log_id` to find genuinely new entries — if the
+last-seen entry is no longer on page 1 (a gap: expired link renewed, bot
+down), `fetchEntriesSinceLastSeen()` pages back with the bosses filter until
+it reaches it. Entries older than 6 hours are recorded to `clear_history`
+silently (no post, no challenge scoring); the rest are announced. Expired
+tokens go through `flagNeedsReauth()` (`notify/reauthNotice.js`), which also
+updates the guild's re-link notice. For each fresh entry: announce it
 (`announceClear()`, which also handles the "same log id across party
 members" consolidation via `raid_group_posts`' claim-then-append pattern),
 and for `competitive` characters, compute and persist `below_min_dps`

@@ -24,7 +24,7 @@ One row per Discord user who has authorized lostark.bible access.
 | `access_token`         | **must be encrypted** before insert — see `src/crypto/tokenCipher.js`  |
 | `token_expires_at`     | `now() + expires_in` from the token response (currently 90 days)       |
 | `scopes`               | space-separated, as returned by the token endpoint                    |
-| `status`               | `active` \| `needs_reauth` \| `revoked` — the bot flips to `needs_reauth` on an expired token or a 401 from the API, and back to `active` itself once `/link-account` is re-run |
+| `status`               | `active` \| `needs_reauth` \| `revoked` — the bot flips to `needs_reauth` on an expired token or a 401 from the API (via `flagNeedsReauth()`, which also updates the guild's re-link notice), and back to `active` itself once `/link-account` is re-run |
 
 lostark.bible tokens have **no refresh token**. Re-running `/link-account`
 is the only way to refresh one — `upsertLinkedAccount` (`src/db/linkedAccounts.js`)
@@ -47,7 +47,7 @@ shared `linked_account_id`.
 | `last_seen_log_id`  | **bot-owned**, do not write from elsewhere                       |
 | `last_checked_at`   | **bot-owned**, do not write from elsewhere                       |
 | `class_name`        | **bot-owned** — kept fresh from the newest log entry on every poll |
-| `role`              | **bot-owned** — `dps` \| `support` \| `unknown`, inferred from the log entry's fields |
+| `role`              | **bot-owned** — `dps` \| `support` \| `unknown`, inferred from the log entry's fields (`bdps` → support, `udps`/`ndps` → dps; `unknown` only for very old entries carrying neither) |
 | `gear_score`        | **bot-owned** — from the newest log entry, kept fresh every poll  |
 | `combat_power`      | **bot-owned** — from the newest log entry, kept fresh every poll  |
 | `world`             | Lost Ark server name (e.g. "Arcturus"), from the rosters API's `world` field — set once at `/track-character` time, not re-fetched afterward |
@@ -207,6 +207,13 @@ instead of posting a separate one. See `src/scheduler/poller.js`'s
 Owned entirely by the bot — set via the `/announce-channel` slash command by a
 server admin. The app page doesn't need Discord channel-listing permissions;
 it only needs to know a `guild_id` when writing `tracked_characters`.
+
+| column                      | notes |
+|-----------------------------|-------|
+| `guild_id`                  | primary key |
+| `announcement_channel_id`   | where clears, `/challenge` posts and the re-link notice go |
+| `last_reset_at`             | start of the guild's current guess-parse week; also the weekly-reset double-fire claim (see `claimWeeklyReset`) |
+| `reauth_notice_message_id`  | the guild's current "lostark.bible re-link needed" post (`src/notify/reauthNotice.js`), edited in place; null = none posted (nobody to list, or it was wiped by a channel clear) |
 
 ## `guess_attempts`
 

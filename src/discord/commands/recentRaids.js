@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { getEnabledByGuildAndName } from '../../db/trackedCharacters.js';
-import { markNeedsReauth } from '../../db/linkedAccounts.js';
+import { flagNeedsReauth } from '../../notify/reauthNotice.js';
 import { getCharacterLogs } from '../../lostarkbible/client.js';
 import { decryptToken } from '../../crypto/tokenCipher.js';
 import { TokenExpiredError, InsufficientScopeError } from '../../lostarkbible/errors.js';
@@ -30,7 +30,7 @@ export const recentRaidsCommand = {
     if (row.account_status !== 'active' || new Date(row.token_expires_at) <= new Date()) {
       await interaction.editReply(`${row.character_name}'s lostark.bible link needs to be re-authorized.`);
       if (row.account_status === 'active') {
-        await markNeedsReauth(row.linked_account_id);
+        await flagNeedsReauth(interaction.client, row.linked_account_id);
       }
       return;
     }
@@ -42,7 +42,7 @@ export const recentRaidsCommand = {
       });
     } catch (err) {
       if (err instanceof TokenExpiredError) {
-        await markNeedsReauth(row.linked_account_id);
+        await flagNeedsReauth(interaction.client, row.linked_account_id);
         await interaction.editReply(`${row.character_name}'s lostark.bible link expired.`);
         return;
       }
