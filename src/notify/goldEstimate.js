@@ -59,7 +59,10 @@ const GOLD_ESTIMATE = {
   'Mordum, the Abyssal Punisher': {
     Normal: 10_000,
     Hard: 14_000,
-    // Act 3 Extreme (Echoes of Thunder, Nov 2026) — official patch notes.
+  },
+  // Mordum Extreme (Act 3 Extreme, Echoes of Thunder, Nov 2026) — logged
+  // under this boss name, see raidFamilies.js. Official patch notes.
+  'Flash of Punishment': {
     'Extreme Normal': 20_000,
     'Extreme Hard': 50_000,
   },

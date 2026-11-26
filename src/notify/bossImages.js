@@ -57,8 +57,10 @@ const BOSS_IMAGES = {
   'Phantom Manifester Brelshaza': BRELSHAZA,
   'Infernas': MORDUM_GATE_1,
   'Blossoming Fear, Naitreya': MORDUM_GATE_2,
-  // Also covers Mordum Extreme (Act 3 Extreme) — same boss name.
   'Mordum, the Abyssal Punisher': MORDUM_GATE_3,
+  // Mordum Extreme (Act 3 Extreme) — lostark.bible logs it under this name,
+  // see raidFamilies.js. Same boss, so the same Mordum art.
+  'Flash of Punishment': MORDUM_GATE_3,
   'Belgardin, Arbiter of Death': BELGARDIN,
   'Phaetus An Kragma': BELGARDIN,
 };

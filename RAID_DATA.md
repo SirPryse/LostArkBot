@@ -29,14 +29,14 @@ Thunder Coins (150 Normal / 200 Hard) not reflected below. Gold type split
 not stated in the patch notes — the code assumes 100% Unbound like the
 other Extremes.
 
-**Unverified:** the difficulty strings lostark.bible reports for this raid
-— assumed "Extreme Normal"/"Extreme Hard" like Aegir Extreme. Check the
-first real Act 3 Extreme log and fix `raidFamilies.js` if it differs.
+**Confirmed from live logs:** lostark.bible records this raid as boss
+"Flash of Punishment" (not Mordum's regular name) at difficulty "Extreme Hard"
+(Extreme Normal assumed to follow the same pattern).
 
 | Gate | Boss | Difficulty | Min iLvl | Character Gold | Roster Gold | Unbound Gold | Total Gold |
 |---|---|---|---|---|---|---|---|
-| — | Mordum, the Abyssal Punisher | Extreme Normal | 1730 | | | | 20,000 |
-| — | Mordum, the Abyssal Punisher | Extreme Hard | 1770 | | | | 50,000 |
+| — | Flash of Punishment (Mordum) | Extreme Normal | 1730 | | | | 20,000 |
+| — | Flash of Punishment (Mordum) | Extreme Hard | 1770 | | | | 50,000 |
 
 ## Belgardin
 

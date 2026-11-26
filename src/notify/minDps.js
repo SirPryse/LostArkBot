@@ -68,10 +68,13 @@ const MIN_DPS = {
   'Mordum, the Abyssal Punisher': {
     Normal: 81_330_595,
     Hard: 147_709_013,
-    // Mordum Extreme (Act 3 Extreme). The sheet has no Extreme Normal
-    // figures yet, and Extreme Hard only has Phase 1 (Mordum) — Phase 2
-    // (Heart of Mordum) is blank, so this is the only known phase rather
-    // than the max-across-phases the other Extremes use.
+  },
+  // Mordum Extreme (Act 3 Extreme) — logged as "Flash of Punishment", see
+  // raidFamilies.js. The sheet has no Extreme Normal figures yet, and
+  // Extreme Hard only has Phase 1 (Mordum) — Phase 2 (Heart of Mordum) is
+  // blank, so this is the only known phase rather than the
+  // max-across-phases the other Extremes use.
+  'Flash of Punishment': {
     'Extreme Normal': null,
     'Extreme Hard': 836_623_372,
   },

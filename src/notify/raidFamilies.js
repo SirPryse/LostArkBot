@@ -32,12 +32,11 @@ export const RAID_FAMILIES = [
     // 1 entry per roster per week shared across both difficulties, gold
     // paid regardless of Gold-Earner status (official patch notes).
     //
-    // UNVERIFIED: the difficulty strings. Aegir Extreme logs come through
-    // as "Extreme Normal"/"Extreme Hard", so this assumes Act 3 Extreme
-    // does the same — no Act 3 Extreme log had been seen yet when this was
-    // added. If lostark.bible reports plain "Normal"/"Hard" instead, these
-    // clears will be counted as regular Mordum Gate 3 and this needs
-    // revisiting.
+    // Confirmed live (first clears, Nov 2026): lostark.bible logs it as boss
+    // "Flash of Punishment" — not Mordum's regular name — at difficulty
+    // "Extreme Hard". It was first added under "Mordum, the Abyssal
+    // Punisher", which never matched, so those clears got no raid, no gold
+    // and the placeholder image.
     key: 'mordum-extreme',
     label: 'Mordum Extreme',
     hideGateNumber: true,
@@ -46,9 +45,7 @@ export const RAID_FAMILIES = [
     // Patch notes don't state the gold type — assumed 100% Unbound like
     // the confirmed Aegir/Brelshaza Extremes above, same Extreme system.
     fullyUnboundDifficulties: ['Extreme Normal', 'Extreme Hard'],
-    gates: [
-      [{ name: 'Mordum, the Abyssal Punisher', difficulties: ['Extreme Normal', 'Extreme Hard'] }],
-    ],
+    gates: [['Flash of Punishment']],
   },
   {
     // Shadow Raid: Belgardin ("Arbiter of Death", Oct 21 2026). Gate order

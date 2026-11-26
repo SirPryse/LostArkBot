@@ -34,8 +34,9 @@ test('every known boss has an image file that exists', () => {
 });
 
 test('a boss name shared by two families is told apart by difficulty', () => {
+  // Mordum Extreme is logged under its own name ("Flash of Punishment").
   assert.equal(getRaidFamilyForBoss('Mordum, the Abyssal Punisher', 'Hard').family.key, 'mordum');
-  assert.equal(getRaidFamilyForBoss('Mordum, the Abyssal Punisher', 'Extreme Hard').family.key, 'mordum-extreme');
+  assert.equal(getRaidFamilyForBoss('Flash of Punishment', 'Extreme Hard').family.key, 'mordum-extreme');
   assert.equal(getRaidFamilyForBoss('Aegir, the Oppressor', 'Normal').family.key, 'aegir');
   assert.equal(getRaidFamilyForBoss('Aegir, the Oppressor', 'Extreme Nightmare').family.key, 'aegir-extreme');
   assert.equal(getRaidFamilyForBoss('Unknown Boss', 'Hard'), null);
@@ -44,7 +45,7 @@ test('a boss name shared by two families is told apart by difficulty', () => {
 test('Belgardin gates and friendly names', () => {
   assert.equal(getFriendlyBossName('Belgardin, Arbiter of Death', 'Hard'), 'Belgardin Gate 1');
   assert.equal(getFriendlyBossName('Phaetus An Kragma', 'Nightmare'), 'Belgardin Gate 2');
-  assert.equal(getFriendlyBossName('Mordum, the Abyssal Punisher', 'Extreme Normal'), 'Mordum Extreme');
+  assert.equal(getFriendlyBossName('Flash of Punishment', 'Extreme Hard'), 'Mordum Extreme');
   assert.equal(getFriendlyBossName('Someone New', 'Hard'), 'Someone New');
 });
 

@@ -40,6 +40,9 @@ const MIN_ILVL = {
   'Mordum, the Abyssal Punisher': {
     Normal: 1680,
     Hard: 1700,
+  },
+  // Mordum Extreme (Act 3 Extreme) — see raidFamilies.js.
+  'Flash of Punishment': {
     'Extreme Normal': 1730,
     'Extreme Hard': 1770,
   },
